@@ -4142,7 +4142,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
               ref={shellRef}
               className={activeApp ? "phone-shell app-open-shell" : "phone-shell"}
               data-ui="phone-screen"
-              data-color-mode={draftTheme.colorMode}
               data-active-app={activeApp || ""}
               data-app={activeApp || ""}
               data-shadows={Number(draftTheme.cssOverrides["--desktop-global-shadow"] ?? (draftTheme.enableGlobalShadows ? "0.5" : "0")) > 0 ? "on" : "off"}

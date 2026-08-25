@@ -7,12 +7,10 @@ import {
   Code2,
   Download,
   LayoutGrid,
-  Moon,
   PaintBucket,
   Plus,
   RotateCcw,
   Smartphone,
-  Sun,
   Type,
   Upload,
   Wallpaper,
@@ -317,43 +315,6 @@ export function PhoneThemeApp({
             <div>
               <h3 className="appearance-menu-section-title">System Settings</h3>
               <div className="menu-group mt-2.5">
-                {/* 整台手机夜间护眼模式：使用统一的显示层，避免为每一个 App 维护第二份配色。 */}
-                <div
-                  className="menu-item cursor-pointer"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    const next = { ...draft, colorMode: draft.colorMode === "night" ? "day" : "night" };
-                    onDraftChange(next);
-                    void onApply(next);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    const next = { ...draft, colorMode: draft.colorMode === "night" ? "day" : "night" };
-                    onDraftChange(next);
-                    void onApply(next);
-                    }}
-                >
-                  <span className="card-icon card-icon-glass">
-                    {draft.colorMode === "night" ? <Moon size={20} strokeWidth={1.75} /> : <Sun size={20} strokeWidth={1.75} />}
-                  </span>
-                  <span className="menu-label appearance-menu-item-label">夜间护眼</span>
-                  <label className="block w-10 h-[22px] cursor-pointer relative shrink-0 ml-auto" onClick={(event) => event.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={draft.colorMode === "night"}
-                      onChange={(event) => {
-                        const next = { ...draft, colorMode: event.target.checked ? "night" as const : "day" as const };
-                        onDraftChange(next);
-                        void onApply(next);
-                      }}
-                      className="w-full h-full rounded-[11px] m-0 outline-none"
-                      style={{ appearance: "none", backgroundColor: draft.colorMode === "night" ? "var(--c-success)" : "var(--c-page-body-bg)", transition: "0.2s" }}
-                    />
-                    <div className="absolute w-[18px] h-[18px] bg-white rounded-full top-[2px] pointer-events-none" style={{ left: draft.colorMode === "night" ? 20 : 2, transition: "0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.15)" }} />
-                  </label>
-                </div>
                 {/* 状态栏开关 + 位置调节 */}
                 {(() => {
                   const caseItem = MENU_ITEMS.find(i => i.section === "case")!;

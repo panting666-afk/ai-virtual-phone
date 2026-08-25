@@ -7,8 +7,8 @@ import { MomentsFeed } from "./moments-feed";
 import { ChatRoom } from "./chat-room";
 import { MascotChatRoom } from "./mascot-chat-room";
 import { UserProfilePanel } from "./user-profile-panel";
-import { MessageCircle, Users, Aperture, UserRound } from "lucide-react";
-import { ChatSession, loadChatAppSettings, loadChatSessions, pushChatMessage, hydrateChatStorage } from "@/lib/chat-storage";
+import { MessageCircle, Users, Aperture, UserRound, Moon, Sun } from "lucide-react";
+import { ChatSession, loadChatAppSettings, loadChatSessions, pushChatMessage, hydrateChatStorage, saveChatAppSettings } from "@/lib/chat-storage";
 import { notifyMascotPageContext } from "@/lib/mascot-events";
 import { loadCharacters } from "@/lib/character-storage";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
@@ -39,6 +39,9 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
     const [visitedSessions, setVisitedSessions] = useState<Map<string, ChatSession>>(new Map());
     const [dbReady, setDbReady] = useState(false);
     const [hideTabBar, setHideTabBar] = useState(false);
+    const [chatDarkMode, setChatDarkMode] = useState(() =>
+        typeof window !== "undefined" && loadChatAppSettings().chatDarkMode === true
+    );
 
     // Hydrate IndexedDB → in-memory caches on mount
     useEffect(() => {
@@ -89,6 +92,14 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
         window.addEventListener(CHAT_OPEN_SESSION_EVENT, handler);
         return () => window.removeEventListener(CHAT_OPEN_SESSION_EVENT, handler);
     }, []);
+
+    const toggleChatDarkMode = () => {
+        setChatDarkMode((current) => {
+            const next = !current;
+            saveChatAppSettings({ ...loadChatAppSettings(), chatDarkMode: next });
+            return next;
+        });
+    };
 
     // 名片点击「加好友」：关会话、切联系人 tab，待添加角色经 prop 交给列表打开添加页
     const [pendingAddContactId, setPendingAddContactId] = useState<string | null>(null);
@@ -219,6 +230,7 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
             className="chat-app absolute inset-0 flex flex-col overflow-hidden z-10"
             {...(activeSession || activeMascot ? { "data-room-active": "" } : {})}
             {...(hideTabBar ? { "data-tabbar-hidden": "" } : {})}
+            {...(chatDarkMode ? { "data-chat-theme": "dark" } : {})}
         >
             {/* Chat app-level custom CSS (lower priority than per-session CSS) */}
             {chatAppCSS && <SessionCustomCSS css={chatAppCSS} scope=".chat-app" />}
@@ -276,6 +288,15 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
                 >
                     <MeIcon active={activeTab === "me"} />
                     <span style={{ fontSize: "calc(10px*var(--app-text-scale,1))", color: activeTab === "me" ? undefined : "var(--c-text)" }}>主页</span>
+                </button>
+                <button
+                    className="chat-tab chat-theme-toggle"
+                    onClick={toggleChatDarkMode}
+                    aria-label={chatDarkMode ? "切换为浅色聊天模式" : "切换为护眼暗色聊天模式"}
+                    title={chatDarkMode ? "浅色模式" : "护眼暗色模式"}
+                >
+                    {chatDarkMode ? <Sun size={20} strokeWidth={1.8} /> : <Moon size={20} strokeWidth={1.8} />}
+                    <span style={{ fontSize: "calc(10px*var(--app-text-scale,1))", color: "var(--c-text)" }}>{chatDarkMode ? "浅色" : "护眼"}</span>
                 </button>
             </nav>
 

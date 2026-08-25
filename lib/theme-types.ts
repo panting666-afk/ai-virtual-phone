@@ -30,8 +30,6 @@ export type IconSkinScheme = {
 export type ThemeProfile = {
   version: 2;
   name: string;
-  /** 整台虚拟手机的显示模式；夜间模式只改变显示，不改动任何数据或原有配色设置。 */
-  colorMode: "day" | "night";
   // 壁纸
   wallpaperAssetId: string | null;
   wallpaperBlur: number;
@@ -167,7 +165,6 @@ export function createDefaultIconScheme(): IconSkinScheme {
 export const DEFAULT_THEME_PROFILE: ThemeProfile = {
   version: 2,
   name: "默认主题",
-  colorMode: "day",
   wallpaperAssetId: null,
   wallpaperBlur: 0,
   wallpaperOpacity: 0.9,
@@ -280,9 +277,6 @@ export function normalizeThemeProfile(raw: unknown): ThemeProfile {
   base.name = typeof source.name === "string" && (source.name as string).trim()
     ? decodeEscapedUnicode((source.name as string).trim())
     : base.name;
-
-  // ── Whole-phone display mode ──
-  base.colorMode = source.colorMode === "night" ? "night" : "day";
 
   // ── Wallpaper ──
   base.wallpaperAssetId = typeof source.wallpaperAssetId === "string" ? source.wallpaperAssetId : null;
