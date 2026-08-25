@@ -62,6 +62,12 @@ import {
 import { clearStorageCategory, scanStorageSpace, type StorageCategoryId, type StorageCategoryStat } from "@/lib/storage-space";
 import { isAndroidBrowser, isIOSBrowser } from "@/lib/download-utils";
 import type { BackupManifest, DataModuleId, DataSnapshot, ImportResult, ModuleStats } from "@/lib/data-management/types";
+import {
+  importIPhoneSimulatorBackup,
+  inspectIPhoneSimulatorBackup,
+  type IPhoneSimulatorImportPreview,
+  type IPhoneSimulatorImportProgress,
+} from "@/lib/iphone-simulator-importer";
 
 type PendingImport = {
   file: File;
@@ -75,6 +81,11 @@ type PendingExport = {
 
 type PendingCloudRestore = {
   item: CloudBackupListItem;
+};
+
+type PendingIPhoneSimulatorImport = {
+  file: File;
+  preview: IPhoneSimulatorImportPreview;
 };
 
 type ConfirmRequest =
@@ -284,14 +295,17 @@ export function DataManagement({ onNotice }: DataManagementProps) {
   const [selectedImportModules, setSelectedImportModules] = useState<DataModuleId[]>([]);
   const [selectedClearModules, setSelectedClearModules] = useState<DataModuleId[]>([]);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [pendingIPhoneSimulatorImport, setPendingIPhoneSimulatorImport] = useState<PendingIPhoneSimulatorImport | null>(null);
   const [pendingExport, setPendingExport] = useState<PendingExport | null>(null);
   const [exportSaving, setExportSaving] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [restartNotice, setRestartNotice] = useState<RestartNotice | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [iPhoneSimulatorProgress, setIPhoneSimulatorProgress] = useState<IPhoneSimulatorImportProgress | null>(null);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [persistSupported, setPersistSupported] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const iPhoneSimulatorFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [cloudConfig, setCloudConfig] = useState<CloudBackupConfig>(DEFAULT_CLOUD_BACKUP_CONFIG);
   const [cloudBackingUp, setCloudBackingUp] = useState(false);
@@ -491,6 +505,30 @@ export function DataManagement({ onNotice }: DataManagementProps) {
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  const handleIPhoneSimulatorFileSelected = async (file: File | undefined) => {
+    if (!file) return;
+    await runAction("读取旧 JSON", async () => {
+      const preview = await inspectIPhoneSimulatorBackup(file);
+      setPendingIPhoneSimulatorImport({ file, preview });
+      return `已读取旧备份：${preview.characters} 位角色、${preview.groups} 个群聊、${preview.messages.toLocaleString()} 条消息。`;
+    });
+    if (iPhoneSimulatorFileInputRef.current) iPhoneSimulatorFileInputRef.current.value = "";
+  };
+
+  const executeIPhoneSimulatorImport = () => runAction("迁移旧数据", async () => {
+    if (!pendingIPhoneSimulatorImport) return "请先选择旧 iPhone 模拟器 JSON 文件。";
+    try {
+      const result = await importIPhoneSimulatorBackup(pendingIPhoneSimulatorImport.file, setIPhoneSimulatorProgress);
+      setPendingIPhoneSimulatorImport(null);
+      setRestartNotice({
+        title: "旧数据已导入，请彻底重启应用",
+        summary: `已导入 ${result.importedCharacters} 位角色、${result.importedGroups} 个群聊、${result.messages.toLocaleString()} 条聊天记录；核心记忆 ${result.coreMemories.toLocaleString()}、长期/共享记忆 ${(result.longTermMemories + result.sharedMemories).toLocaleString()}。`,
+      });
+    } finally {
+      setIPhoneSimulatorProgress(null);
+    }
+  });
 
   const handleImport = (overwrite = false) => {
     if (!pendingImport) {
@@ -739,6 +777,36 @@ export function DataManagement({ onNotice }: DataManagementProps) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="data-section">
+        <DataSectionTitle>旧 iPhone 模拟器迁移</DataSectionTitle>
+        <div className="menu-group">
+          <div className="menu-item data-readonly-item">
+            <DataSettingsIcon icon={Smartphone} color={BINDING_ACCENTS.memory} />
+            <div className="menu-label-group">
+              <span className="menu-label">导入旧项目 JSON</span>
+              <span className="menu-desc">在本机导入全部角色、私聊、群聊、核心记忆与长期记忆。不会读取或导入 API Key、模型配置、接口地址和请求日志。</span>
+            </div>
+          </div>
+          <div className="data-menu-actions data-menu-actions-single">
+            <button
+              type="button"
+              className={`ui-btn ui-btn-primary ${busy === "读取旧 JSON" ? "is-busy" : ""}`}
+              onClick={() => iPhoneSimulatorFileInputRef.current?.click()}
+              disabled={Boolean(busy)}
+            >
+              {busy === "读取旧 JSON" ? <><Loader2 size={16} className="animate-spin" /> 读取中…</> : <><Upload size={16} /> 选择旧 JSON 并导入</>}
+            </button>
+          </div>
+          <input
+            ref={iPhoneSimulatorFileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(event) => void handleIPhoneSimulatorFileSelected(event.target.files?.[0])}
+          />
         </div>
       </div>
 
@@ -1065,6 +1133,40 @@ export function DataManagement({ onNotice }: DataManagementProps) {
                 {busy === "导入中" ? <Loader2 size={16} className="animate-spin" /> : null} 覆盖导入
               </button>
               <button type="button" className="ui-btn ui-btn-outline" style={{ width: "100%", whiteSpace: "nowrap" }} onClick={() => setPendingImport(null)} disabled={Boolean(busy)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingIPhoneSimulatorImport && (
+        <div className="modal-overlay" data-ui="modal" onClick={() => { if (!busy) setPendingIPhoneSimulatorImport(null); }}>
+          <div className="modal-dialog data-import-modal" data-ui="modal-dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header" data-ui="modal-header">
+              <h3 className="modal-title">导入旧 iPhone 模拟器数据</h3>
+            </div>
+            <div className="modal-body" data-ui="modal-body" style={{ textAlign: "left", width: "100%" }}>
+              <p className="menu-desc" style={{ marginBottom: 12 }}>
+                将在此设备本地迁移，不上传文件。会导入所有角色、私聊、群聊、角色身份、核心记忆、长期记忆及共享记忆。
+              </p>
+              <div className="data-chip-panel" aria-label="旧数据导入摘要">
+                <p className="menu-desc">角色 {pendingIPhoneSimulatorImport.preview.characters} 位 · 群聊 {pendingIPhoneSimulatorImport.preview.groups} 个 · 用户身份 {pendingIPhoneSimulatorImport.preview.identities} 个</p>
+                <p className="menu-desc">聊天记录 {pendingIPhoneSimulatorImport.preview.messages.toLocaleString()} 条</p>
+                <p className="menu-desc">核心记忆 {pendingIPhoneSimulatorImport.preview.coreMemories.toLocaleString()} 条 · 长期记忆 {pendingIPhoneSimulatorImport.preview.longTermMemories.toLocaleString()} 条 · 共享记忆 {pendingIPhoneSimulatorImport.preview.sharedMemories.toLocaleString()} 条</p>
+              </div>
+              {iPhoneSimulatorProgress && (
+                <div className="data-cloud-progress" role="status" style={{ marginTop: 12 }}>
+                  <div className="data-cloud-progress-track">
+                    <div className="data-cloud-progress-fill" style={{ width: `${iPhoneSimulatorProgress.total > 0 ? Math.round((iPhoneSimulatorProgress.completed / iPhoneSimulatorProgress.total) * 100) : 0}%` }} />
+                  </div>
+                  <span className="data-cloud-progress-text">{iPhoneSimulatorProgress.detail}</span>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer" data-ui="modal-footer" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button type="button" className="ui-btn ui-btn-primary" style={{ width: "100%", whiteSpace: "nowrap" }} onClick={() => void executeIPhoneSimulatorImport()} disabled={Boolean(busy)}>
+                {busy === "迁移旧数据" ? <><Loader2 size={16} className="animate-spin" /> 正在迁移…</> : <><Database size={16} /> 开始本地导入</>}
+              </button>
+              <button type="button" className="ui-btn ui-btn-outline" style={{ width: "100%", whiteSpace: "nowrap" }} onClick={() => setPendingIPhoneSimulatorImport(null)} disabled={Boolean(busy)}>取消</button>
             </div>
           </div>
         </div>

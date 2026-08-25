@@ -69,6 +69,31 @@ export async function saveMemoryEntry(entry: MemoryEntry): Promise<void> {
     }
 }
 
+/**
+ * Bulk variant used by local migration/restore flows. Keeping one IndexedDB
+ * transaction open is substantially faster than opening one transaction per
+ * memory, especially on iOS where a legacy backup can contain thousands of
+ * entries. Existing IDs are intentionally overwritten, making imports
+ * repeatable without creating duplicate memories.
+ */
+export async function saveMemoryEntries(entries: MemoryEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    const db = await openDb();
+    if (!db) return;
+    try {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        for (const entry of entries) store.put(entry);
+        await new Promise<void>((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+            tx.onabort = () => rej(tx.error);
+        });
+    } finally {
+        db.close();
+    }
+}
+
 export async function loadMemoryEntries(characterId: string): Promise<MemoryEntry[]> {
     const db = await openDb();
     if (!db) return [];
