@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import {
     loadFollowUpConfig,
@@ -25,6 +25,7 @@ import { loadCharacters } from "@/lib/character-storage";
 import { triggerImmediatePost } from "@/lib/moments-engine";
 import type { Character } from "@/lib/character-types";
 import { requestNotificationPermission } from "@/lib/browser-notification";
+import { clearChatMessageSound, getChatMessageSoundVolume, playChatMessageSound, saveChatMessageSound, setChatMessageSoundVolume } from "@/lib/chat-message-sound";
 import { disableOfflinePush, enableOfflinePush, getOfflinePushState, isShellEnvironment, loadPushQuietHours, savePushQuietHours, sendTestOfflinePush, type OfflinePushState } from "@/lib/push-client";
 import { isPersonalPushCloudActive, setPersonalPushCloudScheduled } from "@/lib/personal-push-cloud";
 import { loadPushCloudScheduled, savePushCloudScheduled } from "@/lib/cloud-deploy-status";
@@ -59,7 +60,9 @@ import {
     Sticker,
     ThumbsUp,
     Trash2,
+    Upload,
     User,
+    Volume2,
     type LucideIcon,
 } from "lucide-react";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
@@ -162,6 +165,11 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
+    const [messageSoundEnabled, setMessageSoundEnabled] = useState(false);
+    const [messageSoundName, setMessageSoundName] = useState<string | null>(null);
+    const [messageSoundVolume, setMessageSoundVolume] = useState(0.75);
+    const [messageSoundBusy, setMessageSoundBusy] = useState(false);
+    const messageSoundInputRef = useRef<HTMLInputElement | null>(null);
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
@@ -178,6 +186,9 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
+        setMessageSoundEnabled(settings.messageSoundEnabled === true && Boolean(settings.messageSoundRef));
+        setMessageSoundName(settings.messageSoundName || null);
+        setMessageSoundVolume(getChatMessageSoundVolume());
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
         }
@@ -248,6 +259,50 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const handleCallVibrationToggle = (enabled: boolean) => {
         setCallVibrationEnabled(enabled);
         saveChatAppSettings({ ...loadChatAppSettings(), callVibrationEnabled: enabled });
+    };
+
+    const handleMessageSoundToggle = (enabled: boolean) => {
+        const settings = loadChatAppSettings();
+        if (enabled && !settings.messageSoundRef) {
+            messageSoundInputRef.current?.click();
+            return;
+        }
+        saveChatAppSettings({ ...settings, messageSoundEnabled: enabled });
+        setMessageSoundEnabled(enabled);
+    };
+
+    const handleMessageSoundFile = async (file: File | undefined) => {
+        if (!file || messageSoundBusy) return;
+        setMessageSoundBusy(true);
+        try {
+            await saveChatMessageSound(file);
+            setMessageSoundEnabled(true);
+            setMessageSoundName(file.name || "自定义提示音");
+            setMessageSoundVolume(getChatMessageSoundVolume());
+            void playChatMessageSound({ force: true });
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "保存提示音失败。");
+        } finally {
+            setMessageSoundBusy(false);
+            if (messageSoundInputRef.current) messageSoundInputRef.current.value = "";
+        }
+    };
+
+    const handleMessageSoundVolume = (value: number) => {
+        setMessageSoundVolume(value);
+        setChatMessageSoundVolume(value);
+    };
+
+    const handleClearMessageSound = async () => {
+        if (messageSoundBusy) return;
+        setMessageSoundBusy(true);
+        try {
+            await clearChatMessageSound();
+            setMessageSoundEnabled(false);
+            setMessageSoundName(null);
+        } finally {
+            setMessageSoundBusy(false);
+        }
     };
 
     if (showFollowUpEditor) {
@@ -445,6 +500,44 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                             </div>
                             <Toggle checked={callVibrationEnabled} onChange={handleCallVibrationToggle} />
                         </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <Volume2 size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5 min-w-0">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">AI 消息提示音</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70 truncate">{messageSoundName ? `已选择：${messageSoundName}` : "上传后，AI 每条前台消息会播放提示音"}</span>
+                            </div>
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-outline py-1 px-2 ts-11 shrink-0"
+                                onClick={() => messageSoundInputRef.current?.click()}
+                                disabled={messageSoundBusy}
+                            >
+                                {messageSoundBusy ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} {messageSoundName ? "更换" : "上传"}
+                            </button>
+                            <Toggle checked={messageSoundEnabled} onChange={handleMessageSoundToggle} disabled={messageSoundBusy} />
+                        </div>
+                        {messageSoundName && (
+                            <div className="py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                    <span className="ts-11 text-[var(--c-text)] opacity-70">仅在应用前台播放；锁屏/关闭后使用 iOS 系统通知声</span>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button type="button" className="ui-btn ui-btn-outline py-1 px-2 ts-11" onClick={() => void playChatMessageSound({ force: true })} disabled={messageSoundBusy}>
+                                            <Volume2 size={13} /> 试听
+                                        </button>
+                                        <button type="button" className="ui-btn ui-btn-outline py-1 px-2 ts-11" onClick={() => void handleClearMessageSound()} disabled={messageSoundBusy} aria-label="删除自定义提示音">
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="ts-11 text-[var(--c-text)] opacity-70 shrink-0">音量</span>
+                                    <input type="range" min="0" max="1" step="0.05" value={messageSoundVolume} onChange={event => handleMessageSoundVolume(Number(event.target.value))} className="ui-slider flex-1" aria-label="AI 消息提示音音量" />
+                                    <span className="ts-11 text-[var(--c-text)] opacity-70 shrink-0">{Math.round(messageSoundVolume * 100)}%</span>
+                                </div>
+                            </div>
+                        )}
+                        <input ref={messageSoundInputRef} type="file" accept="audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/wav,audio/webm,.mp3,.m4a,.aac,.ogg,.wav,.webm" className="hidden" onChange={event => void handleMessageSoundFile(event.target.files?.[0])} />
 
                         <div className="flex items-center gap-3 py-3 w-full">
                             <Bell size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>

@@ -19,6 +19,7 @@ import { getStatusRegionConfig, isCustomStatusRegionActive } from "@/lib/chat-st
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { sendBrowserNotification } from "@/lib/browser-notification";
 import { dispatchChatMessageNotice } from "@/lib/chat-notification-events";
+import { playChatMessageSound } from "@/lib/chat-message-sound";
 import { shouldSendChatInputOnEnter } from "@/lib/chat-input-keyboard";
 import { useChatBottomReserve } from "./use-chat-bottom-reserve";
 import ReactMarkdown from "react-markdown";
@@ -2872,6 +2873,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
             dispatchVisibleNotice(msg);
             const body = getNoticeBody(msg);
             if (body) {
+                void playChatMessageSound();
                 sendBrowserNotification(charN, { body: body.slice(0, 60), icon: character?.avatar || undefined });
             }
             const afterPublishResult = entry.afterPublish?.(msg);
