@@ -15,6 +15,10 @@
   background: transparent;
 }
 
+.chat-app[data-chat-theme="dark"] .chat-room-layer {
+  background: var(--c-page-body-bg);
+}
+
 .sticker-delete-confirm-overlay,
 .sticker-delete-confirm-dialog,
 .sticker-batch-import-overlay,

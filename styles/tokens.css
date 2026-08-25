@@ -276,6 +276,30 @@
   --c-overlay: rgba(0, 0, 0, 0.35);
 }
 
+/* 聊天专属护眼模式：只覆盖 .chat-app 的变量，不影响桌面或其它 App。 */
+.chat-app[data-chat-theme="dark"] {
+  color-scheme: dark;
+  --c-header-bg: #0B0D10;
+  --c-page-body-bg: #0B0D10;
+  --c-card: #15181D;
+  --c-card-border: #2A3038;
+  --c-polaroid: #171A20;
+  --c-polaroid-back: #12151A;
+  --c-panel: #15181D;
+  --c-panel-border: #303640;
+  --c-text-title: #F5F7FA;
+  --c-text: #B4BCC7;
+  --c-icon-active: #F5F7FA;
+  --c-icon: #929BA7;
+  --c-input: #20242B;
+  --c-input-border: #343B45;
+  --c-bubble-self: #246BFD;
+  --c-bubble-other: #1A1E24;
+  --c-transfer-bg: #332612;
+  --c-transfer-text: #FFD28A;
+  --c-overlay: rgba(0, 0, 0, 0.62);
+}
+
 /* ── Calendar Themes（v2）──
    light 为默认值（:root），其余主题按需覆盖。 */
 [data-calendar-theme="dark"] {
