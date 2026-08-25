@@ -1020,6 +1020,55 @@
   pointer-events: none;
 }
 
+/* ── Whole-phone night mode ───────────────────────────────────────────────
+   The desktop hosts many independently styled apps (including user-installed
+   apps). Inverting each top-level screen layer provides a reliable black
+   canvas + white text mode without rewriting every app's design system.
+   Bitmap media is inverted a second time so photos, avatars and stickers keep
+   their original colors. This is display-only; data and user CSS stay intact.
+   ─────────────────────────────────────────────────────────────────────── */
+.phone-shell[data-color-mode="night"] {
+  color-scheme: dark;
+  background: #000;
+  --status-bar-color: #f7f7f7;
+  --c-header-bg: #0b0d10;
+  --c-page-body-bg: #0b0d10;
+  --c-card: #171a20;
+  --c-card-border: #303640;
+  --c-polaroid: #171a20;
+  --c-polaroid-back: #111419;
+  --c-panel: #171a20;
+  --c-panel-border: #303640;
+  --c-text-title: #f7f7f7;
+  --c-text: #c0c6cf;
+  --c-icon-active: #f7f7f7;
+  --c-icon: #a6afba;
+  --c-input: #20242b;
+  --c-input-border: #343b45;
+  --c-bubble-self: #246bfd;
+  --c-bubble-other: #1a1e24;
+}
+
+.phone-shell[data-color-mode="night"] .phone-wallpaper {
+  background: #000 !important;
+  background-image: none !important;
+  opacity: 1 !important;
+}
+
+.phone-shell[data-color-mode="night"] > :not(.phone-wallpaper):not(.phone-status-bar):not(.phone-shell-notice) {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.phone-shell[data-color-mode="night"] > :not(.phone-wallpaper):not(.phone-status-bar):not(.phone-shell-notice) :is(img, video, canvas, .icon-skin-layer, .dock-skin-layer) {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.phone-shell[data-color-mode="night"] .phone-shell-notice {
+  background: rgba(27, 31, 37, 0.96);
+  color: #f7f7f7;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
 /* ── Standalone page (characters etc.) ── */
 
 .page-frame {
