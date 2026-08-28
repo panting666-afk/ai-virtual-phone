@@ -41,6 +41,7 @@ export function CloudServicesPage() {
 }
 
 type OrganizationOption = { id: string; slug: string; name: string };
+type PersonalCloudProjectOption = { ref: string; organizationSlug: string; status: string; createdAt: string };
 
 function smartRegionForCurrentTimeZone(): "americas" | "emea" | "apac" {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
@@ -80,6 +81,7 @@ export function CloudServicesSetup({ onConfigChanged }: { onConfigChanged?: () =
     const [weixinDeployed, setWeixinDeployed] = useState(false);
     const [token, setToken] = useState("");
     const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
+    const [reusableProjects, setReusableProjects] = useState<PersonalCloudProjectOption[]>([]);
     const [selectedOrganizationSlug, setSelectedOrganizationSlug] = useState("");
     const [selectedRef, setSelectedRef] = useState("");
     const [scopeBackup, setScopeBackup] = useState(true);
@@ -114,17 +116,28 @@ export function CloudServicesSetup({ onConfigChanged }: { onConfigChanged?: () =
             const configuredRef = projectRefFromUrl(config.url);
             const managedRef = config.managedProjectRef === configuredRef ? configuredRef : "";
             if (managedRef) {
-                // 本应用创建过的专用项目允许原地重新部署；旧版手填/误选项目没有标记，
-                // 一律走新建流程，绝不把这次发布写回已有业务库。
+                // 本机记录仍在时可直接原地重新部署；重装后则改由同名项目列表让用户认领。
                 setSelectedRef(managedRef);
                 setOrganizations([]);
+                setReusableProjects([]);
                 setSelectedOrganizationSlug(config.managedOrganizationSlug || "");
             } else {
-                const data = await callSupabaseAdmin<{ organizations: OrganizationOption[] }>({ action: "organizations", token });
-                if (data.organizations.length === 0) throw new Error("该 Supabase 账号下没有可用组织。");
-                setOrganizations(data.organizations);
-                setSelectedOrganizationSlug(data.organizations.length === 1 ? data.organizations[0].slug : "");
-                setSelectedRef("");
+                const [organizationData, projectsData] = await Promise.all([
+                    callSupabaseAdmin<{ organizations: OrganizationOption[] }>({ action: "organizations", token }),
+                    callSupabaseAdmin<{ projects: PersonalCloudProjectOption[] }>({ action: "personal_cloud_projects", token }),
+                ]);
+                if (organizationData.organizations.length === 0) throw new Error("该 Supabase 账号下没有可用组织。");
+                const projects = projectsData.projects;
+                setOrganizations(organizationData.organizations);
+                setReusableProjects(projects);
+                if (projects.length === 1) {
+                    // PWA 重装或导入旧备份会丢失本地标记；只有一个同名个人云时安全地默认复用。
+                    setSelectedRef(projects[0].ref);
+                    setSelectedOrganizationSlug(projects[0].organizationSlug);
+                } else {
+                    setSelectedRef("");
+                    setSelectedOrganizationSlug(organizationData.organizations.length === 1 ? organizationData.organizations[0].slug : "");
+                }
             }
             setScopeBackup(true);
             setScopeWeixin(true);
@@ -392,12 +405,36 @@ export function CloudServicesSetup({ onConfigChanged }: { onConfigChanged?: () =
                             <h3 className="modal-title">部署个人云</h3>
                             {!selectedRef ? (
                                 <div className="menu-desc !mt-0 rounded-[14px] bg-black/[0.03] px-3 py-2.5">
-                                    将新建独立的「AI Phone Personal Cloud」项目，不会写入任何已有项目。
+                                    {reusableProjects.length > 0
+                                        ? "可复用下方检测到的个人云项目；不选择则会新建独立项目。"
+                                        : "将新建独立的「AI Phone Personal Cloud」项目，不会写入任何已有项目。"}
                                 </div>
                             ) : (
                                 <div className="menu-desc !mt-0 rounded-[14px] bg-black/[0.03] px-3 py-2.5">
                                     将更新此前由 AI Phone 创建的专用项目。
                                 </div>
+                            )}
+                            {reusableProjects.length > 0 && (
+                                <label className="flex flex-col gap-1">
+                                    <span className="menu-desc !mt-0">检测到已有个人云项目</span>
+                                    <Select
+                                        value={selectedRef || "__new__"}
+                                        onChange={(e) => {
+                                            const ref = e.target.value === "__new__" ? "" : e.target.value;
+                                            const project = reusableProjects.find((item) => item.ref === ref);
+                                            setSelectedRef(ref);
+                                            if (project?.organizationSlug) setSelectedOrganizationSlug(project.organizationSlug);
+                                        }}
+                                    >
+                                        <option value="__new__">新建独立项目</option>
+                                        {reusableProjects.map((project) => (
+                                            <option key={project.ref} value={project.ref}>
+                                                复用 {project.ref}（{project.status || "状态未知"}{project.createdAt ? ` · ${project.createdAt.slice(0, 10)}` : ""}）
+                                            </option>
+                                        ))}
+                                    </Select>
+                                    <span className="menu-desc !mt-0">部署前会再次验证它是 AI Phone 专用项目，验证失败不会写入。</span>
+                                </label>
                             )}
                             {!selectedRef && (
                                 <label className="flex flex-col gap-1">

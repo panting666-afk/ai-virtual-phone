@@ -18,6 +18,13 @@ type AdminPayload = {
   sql?: string;
 };
 
+type PersonalCloudProject = {
+  ref: string;
+  organizationSlug: string;
+  status: string;
+  createdAt: string;
+};
+
 function cleanToken(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -71,6 +78,24 @@ async function handleOrganizations(token: string): Promise<NextResponse> {
     }))
     .filter((item) => item.slug);
   return NextResponse.json({ ok: true, organizations });
+}
+
+async function handlePersonalCloudProjects(token: string): Promise<NextResponse> {
+  const response = await managementFetch(token, "/projects");
+  if (!response.ok) {
+    return NextResponse.json({ ok: false, error: await upstreamMessage(response) }, { status: response.status });
+  }
+  const data = await response.json() as Array<{ ref?: unknown; name?: unknown; organization_slug?: unknown; status?: unknown; created_at?: unknown }>;
+  const projects: PersonalCloudProject[] = (Array.isArray(data) ? data : [])
+    .filter((item) => item.name === "AI Phone Personal Cloud")
+    .map((item) => ({
+      ref: typeof item.ref === "string" ? item.ref : "",
+      organizationSlug: typeof item.organization_slug === "string" ? item.organization_slug : "",
+      status: typeof item.status === "string" ? item.status : "",
+      createdAt: typeof item.created_at === "string" ? item.created_at : "",
+    }))
+    .filter((item) => Boolean(cleanProjectRef(item.ref)));
+  return NextResponse.json({ ok: true, projects });
 }
 
 async function handleCreateProject(
@@ -200,6 +225,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     if (payload.action === "organizations") return await handleOrganizations(token);
+    if (payload.action === "personal_cloud_projects") return await handlePersonalCloudProjects(token);
     if (payload.action === "create_project") {
       const organizationSlug = cleanOrganizationSlug(payload.organizationSlug);
       if (!organizationSlug) return NextResponse.json({ ok: false, error: "组织标识不合法。" }, { status: 400 });

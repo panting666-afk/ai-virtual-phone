@@ -42,7 +42,7 @@ import { GroupCallScreen } from "./group-call-screen";
 import { TransferTargetModal } from "./transfer-target-modal";
 import { GiftPickerModal } from "./gift-picker-modal";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { deleteWeixinCloudMessagesFromCloud } from "@/lib/weixin-cloud-sync";
+import { deleteWeixinCloudMessagesFromCloud, emitWeixinSyncToast, syncAllWeixinBotRuntimesToCloud } from "@/lib/weixin-cloud-sync";
 import { loadBindingConfig, loadRegexes, resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateGroupChatCompletion, generateGroupOfflineChatCompletion, parseGroupChatResponse, buildEditableGroupRoundText } from "@/lib/group-chat-engine";
 import { appendChatOfflineTurn, deleteChatOfflineTurn, deleteChatOfflineTurnsFrom, loadChatOfflineTurns, parseOfflineResponse, saveChatOfflineTurns, updateChatOfflineTurn, type ChatOfflineTurn } from "@/lib/chat-offline-storage";
@@ -457,6 +457,8 @@ function shouldShowTimestamp(currentMsg: string, prevMsg: string | null): boolea
 type ChatRoomProps = {
     session: ChatSession;
     onBack: () => void;
+    /** 会话在设置页被删除后回调：由外层卸载本聊天室并回到列表 */
+    onDeleted?: () => void;
 };
 
 type OfflineActionTarget = {
@@ -660,6 +662,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
 }, ref) {
     const [inputText, setInputText] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
     // 表情包搜索联想：ESC/失焦置 true 隐藏，输入变化重新开启
     const [suggestClosed, setSuggestClosed] = useState(false);
     // 围观群/被禁言：输入与富媒体入口全部锁定，只留线下切换和生成按钮
@@ -673,19 +676,35 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     const inputLocked = isSpectator || muteRemainingMs > 0;
 
     const resetTextareaHeight = () => {
+        if (resizeFrameRef.current !== null) {
+            window.cancelAnimationFrame(resizeFrameRef.current);
+            resizeFrameRef.current = null;
+        }
         if (textareaRef.current) textareaRef.current.style.height = "auto";
     };
 
-    const appendText = useCallback((text: string, options?: { focus?: boolean }) => {
-        setInputText(prev => prev + text);
-        requestAnimationFrame(() => {
+    // 读 scrollHeight 会迫使浏览器完成一次布局。把密集输入合并到一帧一次，
+    // 避免 iOS PWA 在每个按键上同步回流。
+    const scheduleTextareaResize = useCallback(() => {
+        if (resizeFrameRef.current !== null) return;
+        resizeFrameRef.current = window.requestAnimationFrame(() => {
+            resizeFrameRef.current = null;
             const ta = textareaRef.current;
             if (!ta) return;
             ta.style.height = "auto";
             ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
-            if (options?.focus !== false) ta.focus();
         });
     }, []);
+
+    useEffect(() => () => {
+        if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
+    }, []);
+
+    const appendText = useCallback((text: string, options?: { focus?: boolean }) => {
+        setInputText(prev => prev + text);
+        scheduleTextareaResize();
+        if (options?.focus !== false) textareaRef.current?.focus();
+    }, [scheduleTextareaResize]);
 
     useImperativeHandle(ref, () => ({
         appendText,
@@ -779,8 +798,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 onChange={e => {
                     setInputText(e.target.value);
                     setSuggestClosed(false);
-                    e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                    scheduleTextareaResize();
                 }}
                 onFocus={(e) => {
                     if (panelOpen) {
@@ -920,33 +938,44 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
     const [inputText, setInputText] = useState("");
     const inputTextRef = useRef("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
 
     const resetTextareaHeight = () => {
+        if (resizeFrameRef.current !== null) {
+            window.cancelAnimationFrame(resizeFrameRef.current);
+            resizeFrameRef.current = null;
+        }
         if (textareaRef.current) textareaRef.current.style.height = "auto";
     };
 
-    const resizeTextarea = useCallback(() => {
-        const ta = textareaRef.current;
-        if (!ta) return;
-        ta.style.height = "auto";
-        ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+    const scheduleTextareaResize = useCallback(() => {
+        if (resizeFrameRef.current !== null) return;
+        resizeFrameRef.current = window.requestAnimationFrame(() => {
+            resizeFrameRef.current = null;
+            const ta = textareaRef.current;
+            if (!ta) return;
+            ta.style.height = "auto";
+            ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+        });
+    }, []);
+
+    useEffect(() => () => {
+        if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
     }, []);
 
     const setTextAndResize = useCallback((text: string) => {
         inputTextRef.current = text;
         setInputText(text);
-        requestAnimationFrame(resizeTextarea);
-    }, [resizeTextarea]);
+        scheduleTextareaResize();
+    }, [scheduleTextareaResize]);
 
     const appendText = useCallback((text: string, options?: { focus?: boolean }) => {
         const nextText = inputTextRef.current + text;
         inputTextRef.current = nextText;
         setInputText(nextText);
-        requestAnimationFrame(() => {
-            resizeTextarea();
-            if (options?.focus !== false) textareaRef.current?.focus();
-        });
-    }, [resizeTextarea]);
+        scheduleTextareaResize();
+        if (options?.focus !== false) textareaRef.current?.focus();
+    }, [scheduleTextareaResize]);
 
     useImperativeHandle(ref, () => ({
         clear: () => {
@@ -983,8 +1012,7 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 onChange={e => {
                     inputTextRef.current = e.target.value;
                     setInputText(e.target.value);
-                    e.target.style.height = "auto";
-                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                    scheduleTextareaResize();
                 }}
                 onFocus={(e) => {
                     if (showEmojiPanel) {
@@ -1055,7 +1083,7 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
     );
 }));
 
-export function ChatRoom({ session, onBack }: ChatRoomProps) {
+export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [liveCSS, setLiveCSS] = useState(session.customCSS || "");
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [transientMessages, setTransientMessages] = useState<ChatMessage[]>([]);
@@ -4525,6 +4553,15 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
             }
             applyLocalDelete();
             if (successText) showChatToast(successText);
+            // 删消息对象只解决"消息目录"这一半：删掉的历史早就烘焙进云端运行包的
+            // bakedHistory 里，不重烘焙的话云端助手（微信）照样记得刚删的内容。
+            // 事件监听那条重同步是 3 秒防抖，这里显式先跑，过程常驻可见、失败必须报。
+            emitWeixinSyncToast("微信运行包同步中…", { id: "weixin-runtime", sticky: true });
+            void syncAllWeixinBotRuntimesToCloud()
+                .then(() => emitWeixinSyncToast("微信运行包已同步", { id: "weixin-runtime" }))
+                .catch(() => {
+                    emitWeixinSyncToast("微信运行包同步失败：角色可能还记得刚删的内容，请到「设置 → 微信」手动同步运行包。", { id: "weixin-runtime", duration: 4500 });
+                });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             showChatToast(`云端删除失败：${message}`, 3500);
@@ -5975,6 +6012,10 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                             showChatToast("已清空线下聊天记录");
                         }}
                         onDeleteFriend={() => onBack()}
+                        onSessionDeleted={() => {
+                            setShowSettings(false);
+                            (onDeleted ?? onBack)();
+                        }}
                     />
                 </div>,
                 wrapperRef.current.parentElement

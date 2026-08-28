@@ -653,6 +653,17 @@
   background: color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 55%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  /* 输入时单独合成一层，避免键盘与文字更新牵连整段聊天记录重绘。 */
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+/* iOS PWA 上 backdrop-filter 会让每一次输入都触发昂贵的背景重采样。
+   聚焦输入框时改为近似的不透明底色，失焦后自动恢复原来的玻璃效果。 */
+.chat-input-bar:focus-within {
+  background: color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 94%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .chat-input-bar .chat-input-textarea {

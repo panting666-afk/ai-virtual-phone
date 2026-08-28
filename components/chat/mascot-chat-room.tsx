@@ -474,6 +474,7 @@ export function MascotChatRoom({ onBack, onDeleted }: MascotChatRoomProps) {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
     const bottomScrollTimersRef = useRef<number[]>([]);
     const loadMoreRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
     const stickToBottomRef = useRef(true);
@@ -665,19 +666,25 @@ export function MascotChatRoom({ onBack, onDeleted }: MascotChatRoomProps) {
         }
     }, []);
 
-    const resizeTextarea = () => {
-        const ta = textareaRef.current;
-        if (!ta) return;
-        ta.style.height = "auto";
-        ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
-    };
+    const scheduleTextareaResize = useCallback(() => {
+        if (resizeFrameRef.current !== null) return;
+        resizeFrameRef.current = window.requestAnimationFrame(() => {
+            resizeFrameRef.current = null;
+            const ta = textareaRef.current;
+            if (!ta) return;
+            ta.style.height = "auto";
+            ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+        });
+    }, []);
+
+    useEffect(() => () => {
+        if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
+    }, []);
 
     const appendEmoji = (emoji: string) => {
         setInputText((prev) => prev + emoji);
-        requestAnimationFrame(() => {
-            resizeTextarea();
-            textareaRef.current?.focus();
-        });
+        scheduleTextareaResize();
+        textareaRef.current?.focus();
     };
 
     const handleSend = async () => {
@@ -1127,7 +1134,7 @@ export function MascotChatRoom({ onBack, onDeleted }: MascotChatRoomProps) {
                     value={inputText}
                     onChange={(event) => {
                         setInputText(event.target.value);
-                        resizeTextarea();
+                        scheduleTextareaResize();
                     }}
                     onFocus={(event) => {
                         if (showEmojiPanel) {
