@@ -65,6 +65,10 @@ export function removeCalendarReminder(itemId: string): string[] {
     return removed;
 }
 
+export function findCalendarReminder(itemId: string): TimedWakeSchedule | null {
+    return loadTimedWakeSchedules().find(item => item.source === "calendar" && item.calendarItemId === itemId) ?? null;
+}
+
 function isTimedWakeSchedule(value: unknown): value is TimedWakeSchedule {
     if (!value || typeof value !== "object") return false;
     const item = value as Partial<TimedWakeSchedule>;

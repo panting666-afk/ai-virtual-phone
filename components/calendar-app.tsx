@@ -48,6 +48,7 @@ import { CalendarMonthPage } from "./calendar/month-page";
 import { CalendarDetailPage } from "./calendar/detail-page";
 import { CalendarEventEditModal, type CalendarEventDraft } from "./calendar/event-edit-modal";
 import { cancelCalendarReminder, syncCalendarReminder } from "@/lib/calendar-reminder";
+import { findCalendarReminder } from "@/lib/timed-wake-storage";
 
 type OwnerOption = {
   key: string;
@@ -310,6 +311,8 @@ export function PhoneCalendarApp({
   };
 
   const openEditItem = (item: CalendarScheduleItem) => {
+    // 兼容提醒字段尚未落盘的旧日程：只要待触发提醒仍存在，编辑页就如实显示。
+    const pendingReminder = findCalendarReminder(item.id);
     setEditingItem({
       id: item.id,
       date: item.date,
@@ -321,8 +324,8 @@ export function PhoneCalendarApp({
       title: item.title,
       emoji: item.emoji || "",
       colorKey: item.colorKey,
-      reminderEnabled: item.reminderEnabled,
-      reminderCharacterId: item.reminderCharacterId,
+      reminderEnabled: item.reminderEnabled === true || Boolean(pendingReminder),
+      reminderCharacterId: item.reminderCharacterId || pendingReminder?.characterId,
     });
   };
 

@@ -646,22 +646,6 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
         const latestMessages = loadChatMessages(session.id);
         const elapsedMinutes = resolveTimedWakeElapsedMinutes(sched, latestMessages, Date.now());
 
-        // 日程提醒首先落一条确定可见的角色消息，不能被模型请求、额度或网络问题吞掉。
-        // 角色语气的延展聊天仍可由用户随后自然接话，不让一次提醒变成额外的无关输出。
-        if (sched.source === "calendar") {
-            backgroundGeneratingSessions.add(session.id);
-            window.dispatchEvent(new CustomEvent("followup-started", { detail: { sessionId: session.id } }));
-            await parseAndSaveResponse(
-                formatCalendarReminderMessage(sched),
-                session.id,
-                0,
-                undefined,
-                latestMessages,
-            );
-            window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: session.id } }));
-            return;
-        }
-
         console.log("[TimedWake] Dispatching followup-started for session:", session.id);
         backgroundGeneratingSessions.add(session.id);
         window.dispatchEvent(new CustomEvent("followup-started", { detail: { sessionId: session.id } }));
@@ -693,13 +677,34 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
         );
         console.log(`[TimedWake] Result: hasVisible=${hasVisible}`);
 
-        if (hasVisible) {
+        // 正常情况下由模型按角色人设自然提醒；若模型空回复，仍送出可靠的简短兜底。
+        if (sched.source === "calendar" && !hasVisible) {
+            await parseAndSaveResponse(
+                formatCalendarReminderMessage(sched),
+                session.id,
+                0,
+                undefined,
+                latestMessages,
+            );
+        } else if (hasVisible && sched.source !== "calendar") {
             scheduleFollowUp(session.id, 0, stateValues);
         }
 
         window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: session.id } }));
     } catch (error: any) {
         console.error("[TimedWake] Error:", error);
+        if (sched.source === "calendar") {
+            const history = loadChatMessages(sched.sessionId);
+            await parseAndSaveResponse(
+                formatCalendarReminderMessage(sched),
+                sched.sessionId,
+                0,
+                undefined,
+                history,
+            );
+            window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: sched.sessionId } }));
+            return;
+        }
         const failureLabel = sched.source === "calendar" ? "日程提醒" : sched.source === "user" ? "定时主动消息" : "稍后主动联系";
         pushChatMessage({
             sessionId: sched.sessionId,

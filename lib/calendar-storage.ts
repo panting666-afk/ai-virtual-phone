@@ -191,6 +191,8 @@ export function upsertCalendarScheduleItem(
     emoji: sanitizeScheduleEmoji(item.emoji),
     colorKey: item.colorKey || pickScheduleColorKey(item.startTime),
     source: item.source,
+    reminderEnabled: item.reminderEnabled === true,
+    reminderCharacterId: item.reminderCharacterId?.trim() || undefined,
     createdAt: item.createdAt ?? now,
     updatedAt: now,
   };
