@@ -32,6 +32,8 @@ export function syncCalendarReminder(item: CalendarScheduleItem, preferredSessio
         intent: `提醒用户：现在是日程「${item.title}」的开始时间（${item.date} ${item.startTime}，地点：${item.location || "未定"}）。请自然地提醒用户，不要把它说成是你自己约的主动联系。`,
         source: "calendar",
         calendarItemId: item.id,
+        calendarTitle: item.title,
+        calendarLocation: item.location,
     };
     saveTimedWakeSchedule(schedule);
     void import("./push-bailout-client").then(module => module.armTimedWakeBailout(schedule)).catch(() => undefined);

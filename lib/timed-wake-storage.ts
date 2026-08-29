@@ -16,6 +16,8 @@ export type TimedWakeSchedule = {
     source?: "tool" | "user" | "calendar";
     /** 关联的用户日程；用于更新/删除日程时同步取消提醒。 */
     calendarItemId?: string;
+    calendarTitle?: string;
+    calendarLocation?: string;
 };
 
 export function makeTimedWakeId(sessionId: string): string {

@@ -81,6 +81,12 @@ function resolveTimedWakeElapsedMinutes(sched: TimedWakeSchedule, history: ChatM
     return Math.max(1, Math.round((atMs - sched.createdAt) / 60000));
 }
 
+function formatCalendarReminderMessage(sched: TimedWakeSchedule): string {
+    const title = sched.calendarTitle?.trim() || "你的日程";
+    const location = sched.calendarLocation?.trim();
+    return `⏰ 到时间啦，${title}现在开始${location && location !== "无" ? `，地点在${location}` : ""}。`;
+}
+
 // ── Module state ───────────────────────────────────────────
 let stopInterval: (() => void) | null = null;
 let periodCareUpdateHandler: (() => void) | null = null;
@@ -639,6 +645,22 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
 
         const latestMessages = loadChatMessages(session.id);
         const elapsedMinutes = resolveTimedWakeElapsedMinutes(sched, latestMessages, Date.now());
+
+        // 日程提醒首先落一条确定可见的角色消息，不能被模型请求、额度或网络问题吞掉。
+        // 角色语气的延展聊天仍可由用户随后自然接话，不让一次提醒变成额外的无关输出。
+        if (sched.source === "calendar") {
+            backgroundGeneratingSessions.add(session.id);
+            window.dispatchEvent(new CustomEvent("followup-started", { detail: { sessionId: session.id } }));
+            await parseAndSaveResponse(
+                formatCalendarReminderMessage(sched),
+                session.id,
+                0,
+                undefined,
+                latestMessages,
+            );
+            window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: session.id } }));
+            return;
+        }
 
         console.log("[TimedWake] Dispatching followup-started for session:", session.id);
         backgroundGeneratingSessions.add(session.id);
