@@ -78,7 +78,8 @@ import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 import { pushApiLog } from "./api-log-store";
 export { getApiLogs, clearApiLogs, type DebugInfo } from "./api-log-store";
 import { stripStateAndInnerForPrompt } from "./prompt-sanitizer";
-import { getInternalCapability, getInternalCapabilitySubToolDefinitions } from "./internal-capability-storage";
+import { MUSIC_CONTROL_CAPABILITY_ID, getInternalCapability, getInternalCapabilitySubToolDefinitions } from "./internal-capability-storage";
+import { buildMusicLyricPromptContext } from "./music-lyric-context";
 import { isMediaStoreRef, loadMediaBlob } from "./media-cache-storage";
 import {
     DEFAULT_CHAT_BILINGUAL_PROMPT,
@@ -1937,6 +1938,12 @@ export async function buildChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
     });
+    // Full lyrics are only sent after the user explicitly enables the music
+    // capability in the toolbox. This keeps the added prompt cost opt-in.
+    if (getInternalCapability(MUSIC_CONTROL_CAPABILITY_ID)?.enabled) {
+        const lyricContext = buildMusicLyricPromptContext();
+        if (lyricContext) llmMessages.push({ role: "system", content: lyricContext });
+    }
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
             role: "system",

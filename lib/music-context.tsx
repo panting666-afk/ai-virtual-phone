@@ -7,6 +7,7 @@ import { getAudioBlob, markTrackPlayed } from "./music-storage";
 import { findPlayableMatch, getNeteaseLyrics, getNeteasePlayUrl, getNeteasePlayInfo, getNeteaseSongDetail } from "./music-service";
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 import { registerMusicControlBridge } from "./music-control-bridge";
+import { clearMusicLyricPlayback, publishMusicLyricPlayback } from "./music-lyric-context";
 
 // ── Types ──
 
@@ -110,6 +111,25 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         persistQueue(queue);
     }, [queue]);
+
+    // Keep a small, lyric-aware snapshot for the chat engine. This deliberately
+    // stays separate from the audio element so normal chat prompt creation can
+    // read it without reaching into React context.
+    useEffect(() => {
+        if (!currentTrack?.lyrics?.trim()) {
+            clearMusicLyricPlayback();
+            return;
+        }
+        publishMusicLyricPlayback({
+            trackId: currentTrack.id,
+            title: currentTrack.title,
+            artist: currentTrack.artist,
+            lyrics: currentTrack.lyrics,
+            currentTime,
+            duration,
+            isPlaying,
+        });
+    }, [currentTrack, currentTime, duration, isPlaying]);
 
     /** Wrapped setQueue with max size enforcement */
     const setQueue = useCallback((tracks: MusicTrack[]) => {

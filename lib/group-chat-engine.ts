@@ -83,6 +83,8 @@ import type { DebugPromptSnapshot } from "./debug-store";
 import { throwIfAborted } from "./abort-utils";
 import { buildCharacterTimeContext, buildGroupTimeContext } from "./character-time";
 import { getPromptTimestampOptionsForTimeContext } from "./prompt-time";
+import { MUSIC_CONTROL_CAPABILITY_ID, getInternalCapability } from "./internal-capability-storage";
+import { buildMusicLyricPromptContext } from "./music-lyric-context";
 
 function stripGroupFinancialActionsForMetadataRepair(text: string): string {
     return stripStateAndInnerForPrompt(text)
@@ -493,6 +495,10 @@ async function buildGroupChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
     });
+    if (getInternalCapability(MUSIC_CONTROL_CAPABILITY_ID)?.enabled) {
+        const lyricContext = buildMusicLyricPromptContext();
+        if (lyricContext) llmMessages.push({ role: "system", content: lyricContext });
+    }
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
             role: "system",
