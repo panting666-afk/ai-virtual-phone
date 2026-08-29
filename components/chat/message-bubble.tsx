@@ -39,6 +39,7 @@ interface MessageBubbleProps {
     characterId?: string;
     onMusicPlay?: (title: string, artist?: string) => void;
     onActionSelect?: (text: string) => void;
+    onToggleVoiceTranscript?: (messageId: string) => void;
     displayContent?: string;
     defaultTranslationExpanded?: boolean;
 }
@@ -84,7 +85,7 @@ function PluginKindBubble({ msg, kind }: { msg: ChatMessage; kind: string }) {
  * Renders a message bubble based on its mediaType.
  * Falls back to ReactMarkdown for plain text messages.
  */
-export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, onToggleVoiceTranscript, displayContent, defaultTranslationExpanded = false }: MessageBubbleProps) {
     switch (msg.mediaType) {
         case "red_packet":
             return <RedPacketBubble msg={msg} charName={charName} userName={userName} groupSize={groupSize} onShowDetail={onShowDetail} />;
@@ -117,7 +118,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
         case "xiaohongshu_note_share":
             return <XiaohongshuShareBubble msg={msg} />;
         case "audio":
-            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} defaultTranslationExpanded={defaultTranslationExpanded} />;
+            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} onToggleTranscript={onToggleVoiceTranscript} defaultTranslationExpanded={defaultTranslationExpanded} />;
         default: {
             // 聊天插件自定义消息类型：mediaType = "plugin:<kind>"，由注册插件渲染
             if (msg.mediaType?.startsWith("plugin:")) {
@@ -2228,7 +2229,7 @@ function synthesizeVoiceForMessage(msgId: string, characterId: string, speechTex
     return task;
 }
 
-function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpanded = false }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; defaultTranslationExpanded?: boolean }) {
+function VoiceMessageBubble({ msg, characterId, onUpdate, onToggleTranscript, defaultTranslationExpanded = false }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; onToggleTranscript?: (messageId: string) => void; defaultTranslationExpanded?: boolean }) {
     const [playing, setPlaying] = useState(false);
     const [synthesizing, setSynthesizing] = useState(false);
     const [synthFailed, setSynthFailed] = useState(false);
@@ -2305,10 +2306,17 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
     });
 
     return (
-        <div className="voice-msg-bubble" onClick={handlePlay}
+        <div className="voice-msg-bubble" onClick={() => onToggleTranscript?.(msg.id)}
             style={{ minWidth: `${Math.min(60 + duration * 8, 220)}px` }}
+            title="点击展开或收起文字"
         >
-            <div className="voice-msg-icon-shell">
+            <button
+                type="button"
+                className="voice-msg-icon-shell"
+                onClick={(event) => { event.stopPropagation(); handlePlay(); }}
+                aria-label={playing ? "暂停语音" : "播放语音"}
+                title={playing ? "暂停语音" : "播放语音"}
+            >
                 <div className="voice-msg-icon">
                 {synthesizing ? (
                     <svg width="16" height="16" viewBox="0 0 24 24" className="animate-spin" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" /></svg>
@@ -2318,7 +2326,7 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                 )}
                 </div>
-            </div>
+            </button>
             <div className="voice-msg-bars" {...(playing ? { "data-playing": "" } : {})}>
                 {barHeights.map((height, i) => (
                     <div
