@@ -644,8 +644,8 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
         backgroundGeneratingSessions.add(session.id);
         window.dispatchEvent(new CustomEvent("followup-started", { detail: { sessionId: session.id } }));
 
-        // 用户创建的定时只提供沉默时长语境；角色工具约的保留"你当时想着"视角。
-        const wakeTag = sched.source === "user" ? "user_timed_wake" : "timed_wake";
+        // 用户创建的定时只提供沉默时长语境；日程提醒有独立且强制的提示词。
+        const wakeTag = sched.source === "calendar" ? "calendar_reminder" : sched.source === "user" ? "user_timed_wake" : "timed_wake";
         const rounds = await generateBackgroundCompletionRounds(
             session,
             latestMessages,
@@ -653,6 +653,7 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
                 appTags: ["chat", "text", wakeTag],
                 timedWakeElapsedMinutes: elapsedMinutes,
                 timedWakeIntent: sched.intent,
+                calendarReminderContext: sched.source === "calendar" ? sched.intent : undefined,
             },
         );
 
@@ -677,7 +678,7 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
         window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: session.id } }));
     } catch (error: any) {
         console.error("[TimedWake] Error:", error);
-        const failureLabel = sched.source === "user" ? "定时主动消息" : "稍后主动联系";
+        const failureLabel = sched.source === "calendar" ? "日程提醒" : sched.source === "user" ? "定时主动消息" : "稍后主动联系";
         pushChatMessage({
             sessionId: sched.sessionId,
             role: "system",

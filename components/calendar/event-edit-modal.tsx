@@ -16,7 +16,11 @@ export type CalendarEventDraft = {
   title: string;
   emoji: string;
   colorKey?: CalendarColorKey;
+  reminderEnabled?: boolean;
+  reminderCharacterId?: string;
 };
+
+export type CalendarReminderCharacterOption = { characterId: string; name: string };
 
 const EMOJI_PRESETS = [
   "📌", "💼", "📚", "💻", "🏃", "🏋️", "🍽️", "☕", "🎬",
@@ -41,12 +45,16 @@ export function CalendarEventEditModal({
   onSave,
   onDelete,
   onClose,
+  showReminder,
+  reminderCharacters,
 }: {
   draft: CalendarEventDraft;
   onChange: (next: CalendarEventDraft) => void;
   onSave: () => void;
   onDelete: () => void;
   onClose: () => void;
+  showReminder?: boolean;
+  reminderCharacters?: CalendarReminderCharacterOption[];
 }) {
   return (
     <div className="modal-overlay calendar-edit-modal-overlay" onClick={onClose}>
@@ -114,6 +122,29 @@ export function CalendarEventEditModal({
               placeholder="例如：部门周会"
             />
           </div>
+
+          {showReminder ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-[var(--border)] p-3">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>开始时让 AI 主动提醒我</span>
+                <input
+                  type="checkbox"
+                  checked={draft.reminderEnabled === true}
+                  onChange={e => onChange({ ...draft, reminderEnabled: e.target.checked })}
+                />
+              </label>
+              {draft.reminderEnabled ? (
+                <select
+                  className="h-10 rounded-lg border border-[var(--border)] bg-transparent px-2 text-sm"
+                  value={draft.reminderCharacterId || ""}
+                  onChange={e => onChange({ ...draft, reminderCharacterId: e.target.value })}
+                >
+                  {(reminderCharacters || []).map(option => <option key={option.characterId} value={option.characterId}>{option.name}</option>)}
+                </select>
+              ) : null}
+              {(reminderCharacters || []).length === 0 ? <p className="menu-desc">先和一个角色建立单聊，才能由 TA 主动提醒。</p> : null}
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-1">
             <label className="menu-desc ml-1">地点</label>

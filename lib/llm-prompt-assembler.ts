@@ -59,6 +59,7 @@ export interface AssemblerInput {
     followUpDelay?: number;
     timedWakeElapsedMinutes?: number;
     timedWakeIntent?: string;
+    calendarReminderContext?: string;
     periodCareContext?: string;
     scheduleSummary?: string;
     currentSchedule?: string;
@@ -617,6 +618,7 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
     const followUpDelay = input.followUpDelay ?? 0;
     const timedWakeElapsedMinutes = input.timedWakeElapsedMinutes ?? 0;
     const timedWakeIntent = input.timedWakeIntent ?? "";
+    const calendarReminderContext = input.calendarReminderContext ?? "";
     const periodCareContext = input.periodCareContext ?? "";
     const resolvedUserName = userIdentity?.name || userName;
     const blocks: PromptBlock[] = [];
@@ -624,6 +626,17 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
     const promptTimeContext = input.timeContext ?? buildCharacterTimeContext(character.timeZone);
     const promptTimestampOptions = input.promptTimestampOptions
         ?? getPromptTimestampOptionsForTimeContext(promptTimeContext);
+
+    // 日程提醒不能依赖用户自定义预设是否保留了某个标签，否则会静默失效。
+    if (calendarReminderContext) {
+        blocks.push({
+            role: "system",
+            text: `<calendar_reminder_instruction>${calendarReminderContext}\n这是用户自己的日程提醒；现在请直接发一条自然、简短的提醒消息。不要声称这是你的安排，也不要忽略提醒。</calendar_reminder_instruction>`,
+            depth: 0,
+            order: -10_000,
+            marker: "calendar_reminder",
+        });
+    }
 
     // --- World Book keyword activation ---
     const recentHistoryStr = input.worldBookActivationContext

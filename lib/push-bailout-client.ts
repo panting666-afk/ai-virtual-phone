@@ -491,11 +491,16 @@ export async function armTimedWakeBailout(schedule: TimedWakeSchedule): Promise<
         const history = loadChatMessages(session.id);
         const elapsedMinutes = resolveTimedWakeElapsedMinutes(schedule, history);
 
-        const wakeTag = schedule.source === "user" ? "user_timed_wake" : "timed_wake";
+        const wakeTag = schedule.source === "calendar" ? "calendar_reminder" : schedule.source === "user" ? "user_timed_wake" : "timed_wake";
         const { llmMessages, character, config, preset, regexes, userIdentity } = await buildChatPromptMessages(
             session,
             history,
-            { appTags: ["chat", "text", wakeTag], timedWakeElapsedMinutes: elapsedMinutes, timedWakeIntent: schedule.intent },
+            {
+                appTags: ["chat", "text", wakeTag],
+                timedWakeElapsedMinutes: elapsedMinutes,
+                timedWakeIntent: schedule.intent,
+                calendarReminderContext: schedule.source === "calendar" ? schedule.intent : undefined,
+            },
         );
         maybeAppendCallInvite(llmMessages, schedule.characterId);
         maybeAppendShortcutCapability(llmMessages, { continuationAvailable: true });

@@ -13,7 +13,9 @@ export type TimedWakeSchedule = {
     delayMinutes: number;
     intent: string;
     /** 创建来源：tool=角色自己约的（"你当时想着"视角）/ user=用户预约（"TA拜托你"视角）。缺省按 tool。 */
-    source?: "tool" | "user";
+    source?: "tool" | "user" | "calendar";
+    /** 关联的用户日程；用于更新/删除日程时同步取消提醒。 */
+    calendarItemId?: string;
 };
 
 export function makeTimedWakeId(sessionId: string): string {
@@ -39,7 +41,9 @@ function saveTimedWakeSchedules(schedules: TimedWakeSchedule[]): void {
 
 export function saveTimedWakeSchedule(schedule: TimedWakeSchedule): void {
     const all = loadTimedWakeSchedules();
-    const next = all.filter(item => item.sessionId !== schedule.sessionId);
+    const next = schedule.source === "calendar"
+        ? all.filter(item => item.source !== "calendar" || item.calendarItemId !== schedule.calendarItemId)
+        : all.filter(item => item.source === "calendar" || item.sessionId !== schedule.sessionId);
     next.push(schedule);
     saveTimedWakeSchedules(next);
 }
@@ -50,6 +54,13 @@ export function clearTimedWakeSchedule(sessionId: string): void {
 
 export function removeTimedWakeSchedule(id: string): void {
     saveTimedWakeSchedules(loadTimedWakeSchedules().filter(item => item.id !== id));
+}
+
+export function removeCalendarReminder(itemId: string): string[] {
+    const all = loadTimedWakeSchedules();
+    const removed = all.filter(item => item.source === "calendar" && item.calendarItemId === itemId).map(item => item.id);
+    saveTimedWakeSchedules(all.filter(item => item.source !== "calendar" || item.calendarItemId !== itemId));
+    return removed;
 }
 
 function isTimedWakeSchedule(value: unknown): value is TimedWakeSchedule {

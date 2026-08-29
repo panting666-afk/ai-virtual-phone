@@ -22,6 +22,9 @@ export type CalendarScheduleItem = {
   emoji?: string;
   colorKey: CalendarColorKey;
   source: "manual" | "generated";
+  /** 用户日程到点时是否由指定角色主动提醒。角色自己的日程不使用此字段。 */
+  reminderEnabled?: boolean;
+  reminderCharacterId?: string;
   createdAt: string;
   updatedAt: string;
 };

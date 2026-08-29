@@ -47,6 +47,7 @@ import {
 import { CalendarMonthPage } from "./calendar/month-page";
 import { CalendarDetailPage } from "./calendar/detail-page";
 import { CalendarEventEditModal, type CalendarEventDraft } from "./calendar/event-edit-modal";
+import { cancelCalendarReminder, syncCalendarReminder } from "@/lib/calendar-reminder";
 
 type OwnerOption = {
   key: string;
@@ -116,6 +117,19 @@ function buildPeriodCareCharacterOptions(): PeriodCareCharacterOption[] {
         avatar: character.avatar,
       };
     });
+}
+
+function buildReminderCharacterOptions() {
+  const characters = new Map(loadCharacters().map(character => [character.id, character]));
+  const latest = new Map<string, ReturnType<typeof loadChatSessions>[number]>();
+  for (const session of loadChatSessions()) {
+    if (session.isGroup || !characters.has(session.contactId)) continue;
+    if (!latest.has(session.contactId) || latest.get(session.contactId)!.updatedAt < session.updatedAt) latest.set(session.contactId, session);
+  }
+  return Array.from(latest.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(session => ({
+    characterId: session.contactId,
+    name: session.alias || characters.get(session.contactId)!.name,
+  }));
 }
 
 function formatSimpleDate(dateText: string | null): string {
@@ -231,6 +245,7 @@ export function PhoneCalendarApp({
     () => (showMenstrualSettings ? buildPeriodCareCharacterOptions() : []),
     [showMenstrualSettings],
   );
+  const reminderCharacterOptions = useMemo(() => buildReminderCharacterOptions(), []);
 
   useEffect(() => {
     setOwners(buildOwnerOptions());
@@ -289,6 +304,8 @@ export function PhoneCalendarApp({
       location: base.location,
       title: base.title,
       emoji: base.emoji,
+      reminderEnabled: selectedOwner?.ownerType === "user" && reminderCharacterOptions.length > 0,
+      reminderCharacterId: reminderCharacterOptions[0]?.characterId,
     });
   };
 
@@ -304,6 +321,8 @@ export function PhoneCalendarApp({
       title: item.title,
       emoji: item.emoji || "",
       colorKey: item.colorKey,
+      reminderEnabled: item.reminderEnabled,
+      reminderCharacterId: item.reminderCharacterId,
     });
   };
 
@@ -338,7 +357,7 @@ export function PhoneCalendarApp({
       const day = parseIsoDate(startDate);
       day.setDate(day.getDate() + offset);
       const dayIso = formatIsoDate(day);
-      upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
+      const savedPlan = upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
         id: offset === 0 ? editingItem.id : undefined,
         date: dayIso,
         startTime: editingItem.startTime,
@@ -348,7 +367,12 @@ export function PhoneCalendarApp({
         emoji: sanitizeScheduleEmoji(editingItem.emoji),
         source: "manual",
         colorKey: editingItem.colorKey ?? pickScheduleColorKey(editingItem.startTime),
+        reminderEnabled: selectedOwner.ownerType === "user" && editingItem.reminderEnabled === true,
+        reminderCharacterId: selectedOwner.ownerType === "user" ? editingItem.reminderCharacterId : undefined,
       });
+      const saved = savedPlan.items.find(item => item.id === (offset === 0 ? editingItem.id : undefined))
+        ?? savedPlan.items.find(item => item.date === dayIso && item.title === editingItem.title && item.startTime === editingItem.startTime);
+      if (selectedOwner.ownerType === "user" && saved) syncCalendarReminder(saved);
     }
     setEditingItem(null);
     refreshPlans();
@@ -359,6 +383,7 @@ export function PhoneCalendarApp({
     if (!selectedOwner || !editingItem?.id) return;
     const targetWeekStart = getWeekStartIso(parseIsoDate(editingItem.originalDate || editingItem.date));
     deleteCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, targetWeekStart, editingItem.id);
+    if (selectedOwner.ownerType === "user") cancelCalendarReminder(editingItem.id);
     setEditingItem(null);
     refreshPlans();
     onNotice?.("日程已删除");
@@ -720,6 +745,8 @@ export function PhoneCalendarApp({
           onSave={handleSaveDraft}
           onDelete={handleDeleteItem}
           onClose={() => setEditingItem(null)}
+          showReminder={selectedOwner?.ownerType === "user"}
+          reminderCharacters={reminderCharacterOptions}
         />
       )}
 

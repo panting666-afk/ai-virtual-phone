@@ -352,6 +352,7 @@ type ChatPromptBuildOptions = {
     followUpDelay?: number;
     timedWakeElapsedMinutes?: number;
     timedWakeIntent?: string;
+    calendarReminderContext?: string;
     periodCareContext?: string;
     appId?: string;
     appTags?: string[];
@@ -1909,6 +1910,7 @@ export async function buildChatPromptMessages(
         followUpDelay: options?.followUpDelay,
         timedWakeElapsedMinutes: options?.timedWakeElapsedMinutes,
         timedWakeIntent: options?.timedWakeIntent,
+        calendarReminderContext: options?.calendarReminderContext,
         periodCareContext: options?.periodCareContext,
         scheduleSummary,
         currentSchedule,
