@@ -2008,6 +2008,26 @@ export type OfflineChatCompletionResult = ParsedOfflineResponse & {
     reasoning?: string;
 };
 
+/**
+ * 会话内线下文风/规则：它们是用户临时为这段聊天准备的补充提示，
+ * 独立于全局预设，且只在真正的线下生成时注入。
+ */
+export function buildSessionOfflineCustomization(session: ChatSession): string {
+    const style = session.offlineStyleTemplates?.find(item => item.id === session.selectedOfflineStyleTemplateId);
+    const selectedRuleIds = new Set(session.selectedOfflineRuleTemplateIds || []);
+    const rules = (session.offlineRuleTemplates || []).filter(item => selectedRuleIds.has(item.id));
+    if (!style && rules.length === 0) return "";
+
+    const sections = [
+        "<offline_session_customization>",
+        "以下是用户仅为当前会话选定的线下模式文风与规则。遵守它们，但不能破坏既有的线下输出格式、角色设定或安全要求。",
+        style ? `【选中文风：${style.name}】\n${style.content.trim()}` : "",
+        rules.length ? `【选中规则】\n${rules.map((rule, index) => `${index + 1}. ${rule.name}\n${rule.content.trim()}`).join("\n")}` : "",
+        "</offline_session_customization>",
+    ].filter(Boolean);
+    return sections.join("\n\n");
+}
+
 export async function generateOfflineChatCompletion(
     session: ChatSession,
     history: ChatMessage[],
@@ -2021,6 +2041,8 @@ export async function generateOfflineChatCompletion(
             excludeOfflineSessionId: session.id,
         },
     );
+    const sessionCustomization = buildSessionOfflineCustomization(session);
+    if (sessionCustomization) llmMessages.push({ role: "system", content: sessionCustomization });
     const summaryTag = preset?.story_summary_tag?.trim() || "summary";
     const thinkingTag = preset?.thinking_tag?.trim() || "thinking";
     const offlineTagEnabled = preset?.offline_thinking_enabled === true;

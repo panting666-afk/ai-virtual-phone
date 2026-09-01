@@ -32,6 +32,7 @@ import {
     publishDebugPromptSnapshot,
     touchNativeExpandedToolSource,
     appendEmptyGenerateGuardMessage,
+    buildSessionOfflineCustomization,
     applyCustomPromptProfileToPreset,
     stripOnlineThinkingTag,
     stripPresetTexts,
@@ -1151,6 +1152,8 @@ export async function generateGroupOfflineChatCompletion(
             disableTools: true,
         },
     );
+    const sessionCustomization = buildSessionOfflineCustomization(session);
+    if (sessionCustomization) llmMessages.push({ role: "system", content: sessionCustomization });
     const summaryTag = preset?.story_summary_tag?.trim() || "summary";
     const thinkingTag = preset?.thinking_tag?.trim() || "thinking";
     const offlineTagEnabled = preset?.offline_thinking_enabled === true;

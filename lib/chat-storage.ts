@@ -33,6 +33,15 @@ export type ChatContact = {
     addedAt: string; // ISO date
 };
 
+/** 仅在当前会话的线下模式里使用的文风或规则模板。 */
+export type OfflinePromptTemplate = {
+    id: string;
+    name: string;
+    content: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
 export type ChatSession = {
     id: string;
     contactId: string;
@@ -61,6 +70,14 @@ export type ChatSession = {
     streamOnline?: boolean;
     /** 流式生成（线下）：开启后该会话的线下 AI 回复边生成边显示（默认关，保持原整段请求行为） */
     streamOffline?: boolean;
+    /** 当前会话的线下文风库；不会改动全局预设。 */
+    offlineStyleTemplates?: OfflinePromptTemplate[];
+    /** 当前会话的线下规则库；可同时选中多条。 */
+    offlineRuleTemplates?: OfflinePromptTemplate[];
+    /** 当前选中的线下文风（单选）。 */
+    selectedOfflineStyleTemplateId?: string;
+    /** 当前选中的线下规则（多选）。 */
+    selectedOfflineRuleTemplateIds?: string[];
     // Group chat fields
     isGroup?: boolean;
     groupName?: string;

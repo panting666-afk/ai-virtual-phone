@@ -784,6 +784,187 @@
   gap: 12px;
 }
 
+/* 线下文风/规则库：沿用聊天的半透明卡片与 UI 按钮，不单独引入一套设置视觉。 */
+.chat-offline-prompt-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px 11px 14px;
+  border-radius: 12px;
+  color: var(--c-text);
+  background: color-mix(in srgb, var(--c-card) 66%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-card-border) 38%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.chat-offline-prompt-launcher-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-offline-prompt-launcher-copy > span {
+  color: var(--c-text-title);
+  font-size: calc(13px * var(--app-text-scale, 1));
+  font-weight: 600;
+}
+
+.chat-offline-prompt-launcher-copy > small {
+  overflow: hidden;
+  color: var(--c-icon);
+  font-size: calc(11px * var(--app-text-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-offline-prompt-launcher-btn {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: calc(12px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.chat-offline-prompt-manager-hint,
+.chat-offline-prompt-empty {
+  margin: 0;
+  color: var(--c-icon);
+  font-size: calc(12px * var(--app-text-scale, 1));
+  line-height: 1.55;
+}
+
+.chat-offline-prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-offline-prompt-section + .chat-offline-prompt-section {
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--c-card-border) 50%, transparent);
+}
+
+.chat-offline-prompt-section-head,
+.chat-offline-prompt-template-actions,
+.chat-offline-prompt-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-offline-prompt-section-head {
+  justify-content: space-between;
+}
+
+.chat-offline-prompt-section-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-offline-prompt-section-head strong,
+.chat-offline-prompt-editor-title {
+  color: var(--c-text-title);
+  font-size: calc(14px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-section-head small {
+  color: var(--c-icon);
+  font-size: calc(11px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-section-head .ui-btn,
+.chat-offline-prompt-template-actions .ui-btn {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: calc(11px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-template {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c-input) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-input-border) 80%, transparent);
+}
+
+.chat-offline-prompt-template[data-mounted="true"] {
+  border-color: color-mix(in srgb, var(--c-icon-active) 55%, var(--c-input-border));
+  background: color-mix(in srgb, var(--c-icon-active) 8%, var(--c-input));
+}
+
+.chat-offline-prompt-template-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-offline-prompt-template-copy strong {
+  color: var(--c-text-title);
+  font-size: calc(12.5px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-template-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--c-icon);
+  font-size: calc(11px * var(--app-text-scale, 1));
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chat-offline-prompt-template-actions {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chat-offline-prompt-text-btn {
+  padding: 3px 1px;
+  border: 0;
+  background: transparent;
+  color: var(--c-icon);
+  font: inherit;
+  font-size: calc(11px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-text-btn.is-danger { color: var(--c-danger, #d65a5a); }
+
+.chat-offline-prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-offline-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--c-text);
+  font-size: calc(12px * var(--app-text-scale, 1));
+}
+
+.chat-offline-prompt-textarea {
+  min-height: 142px;
+}
+
+.chat-offline-prompt-editor-actions {
+  justify-content: flex-end;
+}
+
 .chat-offline-empty {
   align-self: center;
   margin-top: 28vh;

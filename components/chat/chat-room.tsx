@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
+import { ChatSession, ChatMessage, OfflinePromptTemplate, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
 import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXmlTagBlocks } from "@/lib/stream-preview";
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
@@ -42,7 +42,7 @@ import { VideoCallScreen } from "./video-call-screen";
 import { GroupCallScreen } from "./group-call-screen";
 import { TransferTargetModal } from "./transfer-target-modal";
 import { GiftPickerModal } from "./gift-picker-modal";
-import { ConfirmDialog } from "@/components/ui/modal";
+import { ConfirmDialog, ContentDialog } from "@/components/ui/modal";
 import { deleteWeixinCloudMessagesFromCloud, emitWeixinSyncToast, syncAllWeixinBotRuntimesToCloud } from "@/lib/weixin-cloud-sync";
 import { loadBindingConfig, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateGroupChatCompletion, generateGroupOfflineChatCompletion, parseGroupChatResponse, buildEditableGroupRoundText } from "@/lib/group-chat-engine";
@@ -466,6 +466,9 @@ type OfflineActionTarget = {
     turnId: string;
     role: "user" | "assistant";
 };
+
+type OfflinePromptTemplateKind = "style" | "rule";
+type OfflinePromptEditor = { kind: OfflinePromptTemplateKind; id?: string };
 
 type ContextMenuAnchor = {
     x: number;
@@ -1120,6 +1123,16 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [offlineVisibleCount, setOfflineVisibleCount] = useState(OFFLINE_INITIAL_LOAD);
     const [pendingOfflineUserText, setPendingOfflineUserText] = useState("");
     const [isOfflineGenerating, setIsOfflineGenerating] = useState(false);
+    // 线下文风与规则完全跟随当前会话保存，不会污染全局预设。
+    const [offlineStyleTemplates, setOfflineStyleTemplates] = useState<OfflinePromptTemplate[]>(() => session.offlineStyleTemplates || []);
+    const [offlineRuleTemplates, setOfflineRuleTemplates] = useState<OfflinePromptTemplate[]>(() => session.offlineRuleTemplates || []);
+    const [selectedOfflineStyleTemplateId, setSelectedOfflineStyleTemplateId] = useState<string | undefined>(session.selectedOfflineStyleTemplateId);
+    const [selectedOfflineRuleTemplateIds, setSelectedOfflineRuleTemplateIds] = useState<string[]>(() => session.selectedOfflineRuleTemplateIds || []);
+    const [showOfflinePromptManager, setShowOfflinePromptManager] = useState(false);
+    const [offlinePromptEditor, setOfflinePromptEditor] = useState<OfflinePromptEditor | null>(null);
+    const [offlinePromptDraftName, setOfflinePromptDraftName] = useState("");
+    const [offlinePromptDraftContent, setOfflinePromptDraftContent] = useState("");
+    const [offlinePromptDeleteTarget, setOfflinePromptDeleteTarget] = useState<OfflinePromptEditor | null>(null);
     // 流式生成预览：线上（单聊/群聊）与线下各一份，生成中实时刷新，结束后清空
     const [streamPreview, setStreamPreview] = useState<null | {
         /** 单聊：按空行定型的分段气泡列表，最后一段在打字 */
@@ -1167,6 +1180,69 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [showStickerPanel, setShowStickerPanel] = useState(false);
     const chatTextInputRef = useRef<ChatTextInputHandle | null>(null);
     const offlineTextInputRef = useRef<OfflineTextInputHandle | null>(null);
+
+    const persistOfflinePromptConfig = useCallback((nextStyles: OfflinePromptTemplate[], nextRules: OfflinePromptTemplate[], nextStyleId: string | undefined, nextRuleIds: string[]) => {
+        setOfflineStyleTemplates(nextStyles);
+        setOfflineRuleTemplates(nextRules);
+        setSelectedOfflineStyleTemplateId(nextStyleId);
+        setSelectedOfflineRuleTemplateIds(nextRuleIds);
+        const sessions = loadChatSessions();
+        const index = sessions.findIndex(item => item.id === session.id);
+        if (index === -1) return;
+        sessions[index] = {
+            ...sessions[index],
+            offlineStyleTemplates: nextStyles,
+            offlineRuleTemplates: nextRules,
+            selectedOfflineStyleTemplateId: nextStyleId,
+            selectedOfflineRuleTemplateIds: nextRuleIds,
+        };
+        saveChatSessions(sessions);
+    }, [session.id]);
+
+    const startOfflinePromptEditor = useCallback((kind: OfflinePromptTemplateKind, template?: OfflinePromptTemplate) => {
+        setOfflinePromptEditor({ kind, id: template?.id });
+        setOfflinePromptDraftName(template?.name || "");
+        setOfflinePromptDraftContent(template?.content || "");
+    }, []);
+
+    const saveOfflinePromptTemplate = useCallback(() => {
+        if (!offlinePromptEditor) return;
+        const content = offlinePromptDraftContent.trim();
+        if (!content) {
+            showChatToast("请先写下文风或规则内容");
+            return;
+        }
+        const isStyle = offlinePromptEditor.kind === "style";
+        const templates = isStyle ? offlineStyleTemplates : offlineRuleTemplates;
+        const now = new Date().toISOString();
+        const name = offlinePromptDraftName.trim() || (isStyle ? "未命名文风" : "未命名规则");
+        const updated = offlinePromptEditor.id
+            ? templates.map(item => item.id === offlinePromptEditor.id ? { ...item, name, content, updatedAt: now } : item)
+            : [...templates, { id: `offline-${isStyle ? "style" : "rule"}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name, content, createdAt: now, updatedAt: now }];
+        persistOfflinePromptConfig(
+            isStyle ? updated : offlineStyleTemplates,
+            isStyle ? offlineRuleTemplates : updated,
+            selectedOfflineStyleTemplateId,
+            selectedOfflineRuleTemplateIds,
+        );
+        setOfflinePromptEditor(null);
+        showChatToast(offlinePromptEditor.id ? "已保存修改" : "已添加到当前会话");
+    }, [offlinePromptDraftContent, offlinePromptDraftName, offlinePromptEditor, offlineRuleTemplates, offlineStyleTemplates, persistOfflinePromptConfig, selectedOfflineRuleTemplateIds, selectedOfflineStyleTemplateId]);
+
+    const toggleOfflineRuleTemplate = useCallback((id: string) => {
+        const next = selectedOfflineRuleTemplateIds.includes(id)
+            ? selectedOfflineRuleTemplateIds.filter(item => item !== id)
+            : [...selectedOfflineRuleTemplateIds, id];
+        persistOfflinePromptConfig(offlineStyleTemplates, offlineRuleTemplates, selectedOfflineStyleTemplateId, next);
+    }, [offlineRuleTemplates, offlineStyleTemplates, persistOfflinePromptConfig, selectedOfflineRuleTemplateIds, selectedOfflineStyleTemplateId]);
+
+    const offlinePromptSession = useMemo<ChatSession>(() => ({
+        ...session,
+        offlineStyleTemplates,
+        offlineRuleTemplates,
+        selectedOfflineStyleTemplateId,
+        selectedOfflineRuleTemplateIds,
+    }), [offlineRuleTemplates, offlineStyleTemplates, selectedOfflineRuleTemplateIds, selectedOfflineStyleTemplateId, session]);
 
     useEffect(() => {
         const syncEnterToSend = () => {
@@ -1762,6 +1838,13 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         setEditingOfflineTarget(null);
         setEditingOfflineContent("");
         setOfflineTurns(loadChatOfflineTurns(session.id));
+        setOfflineStyleTemplates(session.offlineStyleTemplates || []);
+        setOfflineRuleTemplates(session.offlineRuleTemplates || []);
+        setSelectedOfflineStyleTemplateId(session.selectedOfflineStyleTemplateId);
+        setSelectedOfflineRuleTemplateIds(session.selectedOfflineRuleTemplateIds || []);
+        setShowOfflinePromptManager(false);
+        setOfflinePromptEditor(null);
+        setOfflinePromptDeleteTarget(null);
 
         // Prewarm sticker cache for all relevant characters, then load messages
         const allMsgs = loadChatMessages(session.id);
@@ -4210,8 +4293,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     });
                 };
                 const result = session.isGroup
-                    ? await generateGroupOfflineChatCompletion(session, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta })
-                    : await generateOfflineChatCompletion(session, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta });
+                    ? await generateGroupOfflineChatCompletion(offlinePromptSession, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta })
+                    : await generateOfflineChatCompletion(offlinePromptSession, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta });
                 if (!isCurrentOfflineRun()) return;
                 const assistantContent = result.content.trim() || result.rawText.trim();
                 if (!assistantContent) throw new Error("AI 没有返回线下正文");
@@ -4360,8 +4443,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 });
             };
             const result = session.isGroup
-                ? await generateGroupOfflineChatCompletion(session, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta })
-                : await generateOfflineChatCompletion(session, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta });
+                ? await generateGroupOfflineChatCompletion(offlinePromptSession, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta })
+                : await generateOfflineChatCompletion(offlinePromptSession, history, { signal: offlineRun.controller.signal, onStreamDelta: onOfflineDelta });
             if (!isCurrentOfflineRun()) return;
             const assistantContent = result.content.trim() || result.rawText.trim();
             if (!assistantContent) throw new Error("AI 没有返回线下正文");
@@ -5511,6 +5594,18 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             >
                 {offlineMode && (
                     <div className="chat-offline-body">
+                        <div className="chat-offline-prompt-launcher">
+                            <div className="chat-offline-prompt-launcher-copy">
+                                <span>线下文风与规则</span>
+                                <small>
+                                    {offlineStyleTemplates.find(item => item.id === selectedOfflineStyleTemplateId)?.name || "未挂载文风"}
+                                    {selectedOfflineRuleTemplateIds.length > 0 ? ` · 已挂载 ${selectedOfflineRuleTemplateIds.length} 条规则` : " · 未挂载规则"}
+                                </small>
+                            </div>
+                            <button type="button" className="ui-btn ui-btn-ghost chat-offline-prompt-launcher-btn" onClick={() => setShowOfflinePromptManager(true)}>
+                                管理
+                            </button>
+                        </div>
                         {offlineTurns.length === 0 && !pendingOfflineUserText ? (
                             <div className="chat-offline-empty">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" /><circle cx="12" cy="10" r="3" /></svg>
@@ -6325,6 +6420,95 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     cancelLabel="取消"
                     onConfirm={handleMultiDeleteConfirmed}
                     onCancel={() => setShowConfirmMultiDelete(false)}
+                />
+            )}
+
+            {showOfflinePromptManager && (
+                <ContentDialog
+                    title="线下文风与规则"
+                    confirmLabel="完成"
+                    cancelLabel=""
+                    onConfirm={() => { setOfflinePromptEditor(null); setShowOfflinePromptManager(false); }}
+                    onCancel={() => { setOfflinePromptEditor(null); setShowOfflinePromptManager(false); }}
+                >
+                    <div className="chat-offline-prompt-manager">
+                        <p className="chat-offline-prompt-manager-hint">只作用于当前聊天的线下模式。挂载后会在每轮线下回复时自动加入上下文，不会修改全局预设。</p>
+                        {offlinePromptEditor ? (
+                            <div className="chat-offline-prompt-editor">
+                                <div className="chat-offline-prompt-editor-title">{offlinePromptEditor.id ? `编辑${offlinePromptEditor.kind === "style" ? "文风" : "规则"}` : `添加${offlinePromptEditor.kind === "style" ? "文风" : "规则"}`}</div>
+                                <label className="chat-offline-prompt-field">
+                                    <span>名称</span>
+                                    <input className="ui-input" value={offlinePromptDraftName} onChange={event => setOfflinePromptDraftName(event.target.value)} placeholder={offlinePromptEditor.kind === "style" ? "例如：温柔日常" : "例如：不使用旁白"} />
+                                </label>
+                                <label className="chat-offline-prompt-field">
+                                    <span>内容</span>
+                                    <textarea className="ui-textarea chat-offline-prompt-textarea" value={offlinePromptDraftContent} onChange={event => setOfflinePromptDraftContent(event.target.value)} placeholder={offlinePromptEditor.kind === "style" ? "描述希望 AI 使用的语气、节奏、表达方式……" : "写下希望 AI 遵守的具体规则……"} />
+                                </label>
+                                <div className="chat-offline-prompt-editor-actions">
+                                    <button type="button" className="ui-btn ui-btn-ghost" onClick={() => setOfflinePromptEditor(null)}>取消</button>
+                                    <button type="button" className="ui-btn ui-btn-primary" onClick={saveOfflinePromptTemplate}>保存</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <section className="chat-offline-prompt-section">
+                                    <div className="chat-offline-prompt-section-head">
+                                        <div><strong>文风</strong><small>一次挂载一条</small></div>
+                                        <button type="button" className="ui-btn ui-btn-ghost" onClick={() => startOfflinePromptEditor("style")}>添加文风</button>
+                                    </div>
+                                    {offlineStyleTemplates.length === 0 ? <p className="chat-offline-prompt-empty">还没有文风。添加后可在这里一键挂载。</p> : offlineStyleTemplates.map(template => {
+                                        const mounted = selectedOfflineStyleTemplateId === template.id;
+                                        return <div className="chat-offline-prompt-template" data-mounted={mounted ? "true" : undefined} key={template.id}>
+                                            <div className="chat-offline-prompt-template-copy"><strong>{template.name}</strong><small>{template.content}</small></div>
+                                            <div className="chat-offline-prompt-template-actions">
+                                                <button type="button" className={`ui-btn ${mounted ? "ui-btn-primary" : "ui-btn-ghost"}`} onClick={() => persistOfflinePromptConfig(offlineStyleTemplates, offlineRuleTemplates, mounted ? undefined : template.id, selectedOfflineRuleTemplateIds)}>{mounted ? "已挂载" : "挂载"}</button>
+                                                <button type="button" className="chat-offline-prompt-text-btn" onClick={() => startOfflinePromptEditor("style", template)}>编辑</button>
+                                                <button type="button" className="chat-offline-prompt-text-btn is-danger" onClick={() => setOfflinePromptDeleteTarget({ kind: "style", id: template.id })}>删除</button>
+                                            </div>
+                                        </div>;
+                                    })}
+                                </section>
+                                <section className="chat-offline-prompt-section">
+                                    <div className="chat-offline-prompt-section-head">
+                                        <div><strong>规则</strong><small>可同时挂载多条</small></div>
+                                        <button type="button" className="ui-btn ui-btn-ghost" onClick={() => startOfflinePromptEditor("rule")}>添加规则</button>
+                                    </div>
+                                    {offlineRuleTemplates.length === 0 ? <p className="chat-offline-prompt-empty">还没有规则。比如：回复要简短、不出现某种称呼。</p> : offlineRuleTemplates.map(template => {
+                                        const mounted = selectedOfflineRuleTemplateIds.includes(template.id);
+                                        return <div className="chat-offline-prompt-template" data-mounted={mounted ? "true" : undefined} key={template.id}>
+                                            <div className="chat-offline-prompt-template-copy"><strong>{template.name}</strong><small>{template.content}</small></div>
+                                            <div className="chat-offline-prompt-template-actions">
+                                                <button type="button" className={`ui-btn ${mounted ? "ui-btn-primary" : "ui-btn-ghost"}`} onClick={() => toggleOfflineRuleTemplate(template.id)}>{mounted ? "已挂载" : "挂载"}</button>
+                                                <button type="button" className="chat-offline-prompt-text-btn" onClick={() => startOfflinePromptEditor("rule", template)}>编辑</button>
+                                                <button type="button" className="chat-offline-prompt-text-btn is-danger" onClick={() => setOfflinePromptDeleteTarget({ kind: "rule", id: template.id })}>删除</button>
+                                            </div>
+                                        </div>;
+                                    })}
+                                </section>
+                            </>
+                        )}
+                    </div>
+                </ContentDialog>
+            )}
+
+            {offlinePromptDeleteTarget && (
+                <ConfirmDialog
+                    title={`删除${offlinePromptDeleteTarget.kind === "style" ? "文风" : "规则"}？`}
+                    message="删除后无法恢复；已经挂载的内容也会一并卸载。"
+                    icon={AlertCircle}
+                    variant="danger"
+                    confirmLabel="删除"
+                    cancelLabel="取消"
+                    onCancel={() => setOfflinePromptDeleteTarget(null)}
+                    onConfirm={() => {
+                        const target = offlinePromptDeleteTarget;
+                        if (!target.id) return;
+                        const nextStyles = target.kind === "style" ? offlineStyleTemplates.filter(item => item.id !== target.id) : offlineStyleTemplates;
+                        const nextRules = target.kind === "rule" ? offlineRuleTemplates.filter(item => item.id !== target.id) : offlineRuleTemplates;
+                        persistOfflinePromptConfig(nextStyles, nextRules, target.kind === "style" && selectedOfflineStyleTemplateId === target.id ? undefined : selectedOfflineStyleTemplateId, selectedOfflineRuleTemplateIds.filter(id => id !== target.id));
+                        setOfflinePromptDeleteTarget(null);
+                        showChatToast("已删除");
+                    }}
                 />
             )}
 
