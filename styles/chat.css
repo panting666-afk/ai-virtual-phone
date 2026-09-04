@@ -784,49 +784,7 @@
   gap: 12px;
 }
 
-/* 线下文风/规则库：沿用聊天的半透明卡片与 UI 按钮，不单独引入一套设置视觉。 */
-.chat-offline-prompt-launcher {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 12px 11px 14px;
-  border-radius: 12px;
-  color: var(--c-text);
-  background: color-mix(in srgb, var(--c-card) 66%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c-card-border) 38%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.chat-offline-prompt-launcher-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.chat-offline-prompt-launcher-copy > span {
-  color: var(--c-text-title);
-  font-size: calc(13px * var(--app-text-scale, 1));
-  font-weight: 600;
-}
-
-.chat-offline-prompt-launcher-copy > small {
-  overflow: hidden;
-  color: var(--c-icon);
-  font-size: calc(11px * var(--app-text-scale, 1));
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-offline-prompt-launcher-btn {
-  flex: 0 0 auto;
-  min-height: 30px;
-  padding: 5px 11px;
-  font-size: calc(12px * var(--app-text-scale, 1));
-}
-
+/* 线下文风/规则管理器：沿用聊天的半透明卡片与 UI 按钮。 */
 .chat-offline-prompt-manager {
   display: flex;
   flex-direction: column;

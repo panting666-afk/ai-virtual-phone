@@ -185,6 +185,7 @@ import { ScreenEffectSettingsModal } from "./screen-effect-settings-modal";
 type ChatSettingsPanelProps = {
     session: ChatSession;
     onClose: () => void;
+    onOpenOfflinePromptManager: () => void;
     onJumpToMessage?: (messageId: string) => void;
     onDeleteFriend?: () => void;
     onSessionDeleted?: () => void;
@@ -286,6 +287,7 @@ function ChatInfoIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }
 export function ChatSettingsPanel({
     session,
     onClose,
+    onOpenOfflinePromptManager,
     onJumpToMessage,
     onDeleteFriend,
     onSessionDeleted,
@@ -395,6 +397,8 @@ export function ChatSettingsPanel({
     // 流式生成：按会话区分（线上/线下），存 ChatSession 字段，默认关
     const [streamOnline, setStreamOnline] = useState(session.streamOnline === true);
     const [streamOffline, setStreamOffline] = useState(session.streamOffline === true);
+    const selectedOfflineStyleName = session.offlineStyleTemplates?.find(template => template.id === session.selectedOfflineStyleTemplateId)?.name;
+    const selectedOfflineRuleCount = session.selectedOfflineRuleTemplateIds?.length || 0;
     const defaultBilingualPrompt = session.isGroup ? DEFAULT_GROUP_CHAT_BILINGUAL_PROMPT : DEFAULT_CHAT_BILINGUAL_PROMPT;
     const defaultOfflineBilingualPrompt = session.isGroup ? DEFAULT_GROUP_OFFLINE_CHAT_BILINGUAL_PROMPT : DEFAULT_OFFLINE_CHAT_BILINGUAL_PROMPT;
     const [bilingualTranslationPrompt, setBilingualTranslationPrompt] = useState(session.bilingualTranslationPrompt || defaultBilingualPrompt);
@@ -1123,6 +1127,19 @@ export function ChatSettingsPanel({
                                 />
                             </div>
                         </div>
+                        <button className="menu-item" onClick={onOpenOfflinePromptManager}>
+                            <ChatInfoIcon icon={MessageSquare} color={BINDING_ACCENTS.preset} />
+                            <div className="menu-label-group">
+                                <span className="menu-label">线下文风与规则</span>
+                                <span className="menu-desc">
+                                    {selectedOfflineStyleName || "未挂载文风"}
+                                    {selectedOfflineRuleCount > 0 ? ` · 已挂载 ${selectedOfflineRuleCount} 条规则` : " · 未挂载规则"}
+                                </span>
+                            </div>
+                            <div className="menu-right">
+                                <ChevronRight size={16} />
+                            </div>
+                        </button>
                         <button className="menu-item" onClick={() => setShowScreenEffects(true)}>
                             <ChatInfoIcon icon={Sparkles} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">

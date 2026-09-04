@@ -5594,18 +5594,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             >
                 {offlineMode && (
                     <div className="chat-offline-body">
-                        <div className="chat-offline-prompt-launcher">
-                            <div className="chat-offline-prompt-launcher-copy">
-                                <span>线下文风与规则</span>
-                                <small>
-                                    {offlineStyleTemplates.find(item => item.id === selectedOfflineStyleTemplateId)?.name || "未挂载文风"}
-                                    {selectedOfflineRuleTemplateIds.length > 0 ? ` · 已挂载 ${selectedOfflineRuleTemplateIds.length} 条规则` : " · 未挂载规则"}
-                                </small>
-                            </div>
-                            <button type="button" className="ui-btn ui-btn-ghost chat-offline-prompt-launcher-btn" onClick={() => setShowOfflinePromptManager(true)}>
-                                管理
-                            </button>
-                        </div>
                         {offlineTurns.length === 0 && !pendingOfflineUserText ? (
                             <div className="chat-offline-empty">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" /><circle cx="12" cy="10" r="3" /></svg>
@@ -6516,11 +6504,15 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             {showSettings && wrapperRef.current?.parentElement && createPortal(
                 <div className="chat-settings-layer absolute inset-0 z-50">
                     <ChatSettingsPanel
-                        session={session}
+                        session={offlinePromptSession}
                         onClose={() => {
                             setShowSettings(false);
                             // Reload messages in case history was cleared
                             syncMessagesFromStorage();
+                        }}
+                        onOpenOfflinePromptManager={() => {
+                            setShowSettings(false);
+                            setShowOfflinePromptManager(true);
                         }}
                         onJumpToMessage={(messageId) => {
                             setShowSettings(false);
