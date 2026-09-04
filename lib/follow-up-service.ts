@@ -706,7 +706,7 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
             window.dispatchEvent(new CustomEvent("followup-fired", { detail: { sessionId: sched.sessionId } }));
             return;
         }
-        const failureLabel = sched.source === "calendar" ? "日程提醒" : sched.source === "user" ? "定时主动消息" : "稍后主动联系";
+        const failureLabel = sched.source === "user" ? "定时主动消息" : "稍后主动联系";
         pushChatMessage({
             sessionId: sched.sessionId,
             role: "system",

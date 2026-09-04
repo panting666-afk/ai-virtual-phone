@@ -1,6 +1,6 @@
 import type { CalendarScheduleItem } from "./calendar-types";
 import { loadChatSessions } from "./chat-storage";
-import { makeTimedWakeId, removeCalendarReminder, saveTimedWakeSchedule } from "./timed-wake-storage";
+import { makeTimedWakeId, removeCalendarReminder, saveTimedWakeSchedule, type TimedWakeSchedule } from "./timed-wake-storage";
 
 function getReminderFireAt(item: Pick<CalendarScheduleItem, "date" | "startTime">): number | null {
     const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(item.date);
@@ -22,7 +22,7 @@ export function syncCalendarReminder(item: CalendarScheduleItem, preferredSessio
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     if (!session) return false;
 
-    const schedule = {
+    const schedule: TimedWakeSchedule = {
         id: makeTimedWakeId(session.id),
         sessionId: session.id,
         characterId: item.reminderCharacterId,
