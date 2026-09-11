@@ -139,7 +139,6 @@ export type ToolResult = {
 
 import { extractBase64Blocks, storeMediaBase64, storeMediaBlob, detectMediaType, MEDIA_STORE_PROTOCOL } from "./media-cache-storage";
 
-const MAX_RESULT_LENGTH = 2000;
 const PROXY_URL = "/api/tool-proxy";
 
 const MIN_B64_MEDIA_LENGTH = 500;
@@ -266,7 +265,10 @@ async function directMcpFetch(
 }
 
 function truncate(text: string): string {
-    if (text.length > MAX_RESULT_LENGTH) return text.slice(0, MAX_RESULT_LENGTH);
+    // Tool output is execution state, not display-only prose. Silently cutting it can
+    // remove IDs, pagination cursors, payment links, or the closing half of JSON and
+    // make the next tool call impossible. Keep the helper so existing call sites stay
+    // centralized, but never apply a character-count truncation here.
     return text;
 }
 
@@ -3467,7 +3469,7 @@ function formatHttpToolError(status: number, text: string): string {
     } catch {
         // Non-JSON error bodies are shown as-is below.
     }
-    return `HTTP ${status}: ${text.slice(0, 200)}`;
+    return `HTTP ${status}: ${text}`;
 }
 
 // ══════════════════════════════════════════════
@@ -3694,7 +3696,7 @@ async function mcpRequest(
     if (res.status === 401) {
         // 把响应体带回去：401 可能来自应用登录网关、隧道/反代或 MCP 服务器本身，
         // 上层靠 body + WWW-Authenticate 头才能区分并给出正确指引。
-        return { error: { code: 401, message: res.text.slice(0, 300) || "Unauthorized" }, headers: res.headers };
+        return { error: { code: 401, message: res.text || "Unauthorized" }, headers: res.headers };
     }
 
     if (res.status < 200 || res.status >= 300) {
@@ -3704,7 +3706,7 @@ async function mcpRequest(
             const parsed = parseMcpJsonRpcText(res.text);
             const parsedError = normalizeMcpJsonRpcError(parsed.error);
             if (parsedError) errDetail = parsedError.message;
-        } catch { errDetail += `: ${res.text.slice(0, 200)}`; }
+        } catch { errDetail += `: ${res.text}`; }
         return { error: { code: res.status, message: errDetail }, headers: res.headers };
     }
 
@@ -4201,7 +4203,21 @@ async function executeMcpTool(server: McpServerConfig, toolName: string, args: R
 
 async function extractMcpToolResult(toolName: string, result: unknown, signal?: AbortSignal): Promise<ToolResult> {
     throwIfAborted(signal);
-    const r = result as { content?: { type?: string; text?: string; data?: string; mimeType?: string }[] } | undefined;
+    const r = result as {
+        content?: Array<{
+            type?: string;
+            text?: string;
+            data?: string;
+            mimeType?: string;
+            name?: string;
+            title?: string;
+            uri?: string;
+            description?: string;
+            resource?: { uri?: string; mimeType?: string; text?: string; blob?: string };
+        }>;
+        structuredContent?: unknown;
+        isError?: boolean;
+    } | undefined;
     const textParts: string[] = [];
     const mcpAttachments: MediaAttachment[] = [];
 
@@ -4210,28 +4226,56 @@ async function extractMcpToolResult(toolName: string, result: unknown, signal?: 
             throwIfAborted(signal);
             if (c.type === "text" && c.text) {
                 textParts.push(c.text);
-            } else if ((c.type === "image" || c.type === "resource") && c.data) {
+            } else if ((c.type === "image" || c.type === "audio") && c.data) {
                 try {
                     const { ref, category } = await storeMediaBase64(c.data, c.mimeType);
                     throwIfAborted(signal);
                     mcpAttachments.push({ type: category, url: ref });
                 } catch { /* skip */ }
+            } else if (c.type === "resource" && c.resource) {
+                if (c.resource.text) {
+                    textParts.push(c.resource.text);
+                } else if (c.resource.blob) {
+                    try {
+                        const { ref, category } = await storeMediaBase64(c.resource.blob, c.resource.mimeType);
+                        throwIfAborted(signal);
+                        mcpAttachments.push({ type: category, url: ref, title: c.resource.uri });
+                    } catch { /* skip invalid embedded resource */ }
+                }
+            } else if (c.type === "resource_link" && c.uri) {
+                const label = c.title || c.name || c.description || c.uri;
+                textParts.push(`${label}: ${c.uri}`);
             }
         }
     }
 
-    const data = textParts.length > 0 ? textParts.join("\n") : JSON.stringify(result);
+    if (r?.structuredContent !== undefined) {
+        const structured = JSON.stringify(r.structuredContent, null, 2);
+        if (structured && !textParts.includes(structured)) {
+            textParts.push(`结构化结果：\n${structured}`);
+        }
+    }
+
+    const serializedFallback = JSON.stringify(result, null, 2);
+    const data = textParts.length > 0 ? textParts.join("\n") : (serializedFallback || String(result ?? ""));
     const { text: processed, attachments: b64Attachments } = await replaceBase64WithRefs(data, signal);
     const allAttachments = [...mcpAttachments, ...b64Attachments];
 
-    const toolResult: ToolResult = { name: toolName, success: true, data: truncate(processed) };
+    const toolResult: ToolResult = r?.isError === true
+        ? { name: toolName, success: false, error: processed || "MCP 工具执行失败" }
+        : { name: toolName, success: true, data: truncate(processed) };
     if (allAttachments.length > 0) {
         toolResult.mediaAttachments = allAttachments;
         const labels = allAttachments.map(a => ({ audio: "音频", image: "图片", video: "视频", file: "文件" })[a.type] || "文件");
         const unique = [...new Set(labels)];
-        toolResult.data = allAttachments.length === 1
+        const attachmentNotice = allAttachments.length === 1
             ? `${unique[0]}已自动发送给用户。不要再用文字标签描述或重复发送。`
             : `${unique.join("/")}已自动发送给用户（共 ${allAttachments.length} 个）。不要再用文字标签描述或重复发送。`;
+        if (toolResult.success) {
+            toolResult.data = [toolResult.data, attachmentNotice].filter(Boolean).join("\n");
+        } else {
+            toolResult.error = [toolResult.error, attachmentNotice].filter(Boolean).join("\n");
+        }
     }
     return toolResult;
 }
@@ -4245,22 +4289,50 @@ export async function discoverMcpTools(serverUrl: string, server?: McpServerConf
         if (!init.success) throw new Error(init.error || "初始化失败");
     }
 
-    const headers = server ? getMcpSessionHeaders(server) : { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION };
-
     const useSse = isSseUrl(serverUrl);
-    const res = await mcpRequest(serverUrl, "tools/list", {}, headers, false, useSse, undefined, server?.directFetch);
+    const discovered: { name: string; description: string; inputSchema: object }[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
 
-    if (res.error) throw new Error(res.error.message);
+    do {
+        const headers = server ? getMcpSessionHeaders(server) : { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION };
+        const res = await mcpRequest(
+            serverUrl,
+            "tools/list",
+            cursor ? { cursor } : {},
+            headers,
+            false,
+            useSse,
+            undefined,
+            server?.directFetch,
+        );
 
-    const tools = (res.result as { tools?: unknown[] })?.tools;
-    if (!Array.isArray(tools)) return [];
+        if (res.error) throw new Error(res.error.message);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return tools.map((t: any) => ({
-        name: t.name,
-        description: t.description || "",
-        inputSchema: t.inputSchema || {},
-    }));
+        const page = res.result as { tools?: unknown[]; nextCursor?: unknown } | undefined;
+        const tools = page?.tools;
+        if (Array.isArray(tools)) {
+            for (const rawTool of tools) {
+                if (!rawTool || typeof rawTool !== "object") continue;
+                const tool = rawTool as { name?: unknown; description?: unknown; inputSchema?: unknown };
+                if (typeof tool.name !== "string" || !tool.name.trim()) continue;
+                discovered.push({
+                    name: tool.name,
+                    description: typeof tool.description === "string" ? tool.description : "",
+                    inputSchema: tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema as object : {},
+                });
+            }
+        }
+
+        const nextCursor = typeof page?.nextCursor === "string" && page.nextCursor.trim()
+            ? page.nextCursor.trim()
+            : undefined;
+        if (!nextCursor || seenCursors.has(nextCursor)) break;
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+    } while (cursor);
+
+    return discovered;
 }
 
 // ══════════════════════════════════════════════

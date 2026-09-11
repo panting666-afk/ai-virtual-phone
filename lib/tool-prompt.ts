@@ -12,6 +12,51 @@ function expandToolMacros(text: string, context?: ToolSchemaFormatContext): stri
     return postProcessTrim(engine.expand(text));
 }
 
+function stringifyParameterSchema(schema: string | object | undefined): string {
+    try {
+        const parsed = typeof schema === "string" ? JSON.parse(schema) : schema;
+        return JSON.stringify(parsed || { type: "object", properties: {} }, null, 2);
+    } catch {
+        return typeof schema === "string" ? schema : JSON.stringify({ type: "object", properties: {} }, null, 2);
+    }
+}
+
+function appendFullParameterSchema(lines: string[], schema: string | object | undefined): void {
+    lines.push("参数 JSON Schema（必须完整遵守 required、enum 以及嵌套对象/数组结构）：");
+    lines.push(stringifyParameterSchema(schema));
+}
+
+function exampleValueFromSchema(schema: unknown, depth = 0): unknown {
+    if (!schema || typeof schema !== "object" || depth > 8) return "...";
+    const node = schema as Record<string, unknown>;
+    if (node.example !== undefined) return node.example;
+    if (node.default !== undefined) return node.default;
+    if (Array.isArray(node.enum) && node.enum.length > 0) return node.enum[0];
+
+    const variants = Array.isArray(node.oneOf) ? node.oneOf : Array.isArray(node.anyOf) ? node.anyOf : undefined;
+    if (variants?.length) return exampleValueFromSchema(variants[0], depth + 1);
+
+    const type = node.type;
+    if (type === "object" || node.properties) {
+        const result: Record<string, unknown> = {};
+        const properties = node.properties && typeof node.properties === "object"
+            ? node.properties as Record<string, unknown>
+            : {};
+        const required = Array.isArray(node.required)
+            ? new Set(node.required.filter((key): key is string => typeof key === "string"))
+            : null;
+        const entries = Object.entries(properties).filter(([key]) => !required || required.has(key));
+        for (const [key, child] of entries) {
+            result[key] = exampleValueFromSchema(child, depth + 1);
+        }
+        return result;
+    }
+    if (type === "array" || node.items) return [exampleValueFromSchema(node.items, depth + 1)];
+    if (type === "integer" || type === "number") return 0;
+    if (type === "boolean") return false;
+    return "...";
+}
+
 /**
  * Format enabled tools as compact list (name + description only, no params).
  * Returns empty string if no tools (TRIM removes the line).
@@ -77,20 +122,7 @@ export function formatToolSchema(tool: EnabledTool, context?: ToolSchemaFormatCo
             lines.push("");
             lines.push(`动作：${restTool.name}`);
             if (restTool.description) lines.push(`描述：${restTool.description}`);
-            try {
-                const schema = JSON.parse(restTool.parameterSchema);
-                const props = schema.properties || {};
-                const entries = Object.entries(props);
-                if (entries.length > 0) {
-                    lines.push("参数：");
-                    for (const [key, val] of entries) {
-                        const v = val as Record<string, unknown>;
-                        const type = (v.type as string) || "string";
-                        const desc = (v.description as string) || "";
-                        lines.push(`  - ${key} (${type})${desc ? ": " + desc : ""}`);
-                    }
-                }
-            } catch { /* ignore invalid schema */ }
+            appendFullParameterSchema(lines, restTool.parameterSchema);
         }
 
         return expandToolMacros([
@@ -116,20 +148,7 @@ export function formatToolSchema(tool: EnabledTool, context?: ToolSchemaFormatCo
             lines.push("");
             lines.push(`动作：${compositeTool.name}`);
             if (compositeTool.description) lines.push(`描述：${compositeTool.description}`);
-            try {
-                const schema = JSON.parse(compositeTool.parameterSchema);
-                const props = schema.properties || {};
-                const entries = Object.entries(props);
-                if (entries.length > 0) {
-                    lines.push("参数：");
-                    for (const [key, val] of entries) {
-                        const v = val as Record<string, unknown>;
-                        const type = (v.type as string) || "string";
-                        const desc = (v.description as string) || "";
-                        lines.push(`  - ${key} (${type})${desc ? ": " + desc : ""}`);
-                    }
-                }
-            } catch { /* ignore invalid schema */ }
+            appendFullParameterSchema(lines, compositeTool.parameterSchema);
         }
 
         return expandToolMacros([
@@ -155,17 +174,7 @@ export function formatToolSchema(tool: EnabledTool, context?: ToolSchemaFormatCo
             lines.push("");
             lines.push(`动作：${mcpTool.name}`);
             if (mcpTool.description) lines.push(`描述：${mcpTool.description}`);
-            const schema = mcpTool.inputSchema as { properties?: Record<string, Record<string, unknown>> } | undefined;
-            const props = schema?.properties || {};
-            const entries = Object.entries(props);
-            if (entries.length > 0) {
-                lines.push("参数：");
-                for (const [key, val] of entries) {
-                    const type = (val.type as string) || "string";
-                    const desc = (val.description as string) || "";
-                    lines.push(`  - ${key} (${type})${desc ? ": " + desc : ""}`);
-                }
-            }
+            appendFullParameterSchema(lines, mcpTool.inputSchema);
         }
 
         return expandToolMacros([
@@ -191,17 +200,7 @@ export function formatToolSchema(tool: EnabledTool, context?: ToolSchemaFormatCo
             lines.push("");
             lines.push(`动作：${customAppTool.name}`);
             if (customAppTool.description) lines.push(`描述：${customAppTool.description}`);
-            const schema = customAppTool.parameterSchema as { properties?: Record<string, Record<string, unknown>> } | undefined;
-            const props = schema?.properties || {};
-            const entries = Object.entries(props);
-            if (entries.length > 0) {
-                lines.push("参数：");
-                for (const [key, val] of entries) {
-                    const type = (val.type as string) || "string";
-                    const desc = (val.description as string) || "";
-                    lines.push(`  - ${key} (${type})${desc ? ": " + desc : ""}`);
-                }
-            }
+            appendFullParameterSchema(lines, customAppTool.parameterSchema);
         }
 
         return expandToolMacros([
@@ -216,32 +215,16 @@ export function formatToolSchema(tool: EnabledTool, context?: ToolSchemaFormatCo
     const lines: string[] = [];
     lines.push(`动作：${tool.name}`);
     lines.push(`描述：${tool.description}`);
-
-    try {
-        const schema = JSON.parse(tool.parameterSchema);
-        const props = schema.properties || {};
-        const entries = Object.entries(props);
-        if (entries.length > 0) {
-            lines.push("参数：");
-            for (const [key, val] of entries) {
-                const v = val as Record<string, unknown>;
-                const type = (v.type as string) || "string";
-                const desc = (v.description as string) || "";
-                lines.push(`  - ${key} (${type})${desc ? ": " + desc : ""}`);
-            }
-        }
-    } catch { /* ignore */ }
+    appendFullParameterSchema(lines, tool.parameterSchema);
 
     // Build example call with placeholder values
     let exampleArgs = "{}";
     try {
         const schema = JSON.parse(tool.parameterSchema);
-        const props = schema.properties || {};
-        const example: Record<string, string> = {};
-        for (const [key] of Object.entries(props)) {
-            example[key] = "...";
+        const example = exampleValueFromSchema(schema);
+        if (example && typeof example === "object" && !Array.isArray(example)) {
+            exampleArgs = JSON.stringify(example);
         }
-        if (Object.keys(example).length > 0) exampleArgs = JSON.stringify(example);
     } catch { /* ignore */ }
 
     return expandToolMacros(`以下是你获取指令的返回结果：\n${lines.join("\n")}\n请立即使用以下格式输出动作指令（将...替换为实际值）：\n[执行动作:${tool.name}(${exampleArgs})]\n禁止再次使用[获取指令]。不要重复之前说过的内容。!!!执行动作时，直接输出动作指令，禁止输出任何其他内容，包括任何[内心]、状态值、聊天内容、富媒体指令等。忽略chat_output_format里的所有指令，否则系统将出现重大错误`, context);

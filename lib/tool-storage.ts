@@ -614,7 +614,9 @@ const BUILTIN_SEARCH: RestToolConfig = {
         properties: {
             query: { type: "string", description: "搜索关键词" },
         },
+        required: ["query"],
     }),
+    headers: { Authorization: "Bearer {{api_key}}" },
     fixedParams: { api_key: "" },  // 用户需在设置中填入 Tavily API Key
     directFetch: true,
     enabled: false,

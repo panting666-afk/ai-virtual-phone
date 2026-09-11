@@ -44,6 +44,8 @@ interface MessageBubbleProps {
     onActionSelect?: (text: string) => void;
     displayContent?: string;
     defaultTranslationExpanded?: boolean;
+    voiceTextExpanded?: boolean;
+    onVoiceTextToggle?: () => void;
 }
 
 /** 聊天插件自定义消息气泡：把裸 DOM 容器交给注册了该 kind 的插件渲染 */
@@ -87,7 +89,7 @@ function PluginKindBubble({ msg, kind }: { msg: ChatMessage; kind: string }) {
  * Renders a message bubble based on its mediaType.
  * Falls back to ReactMarkdown for plain text messages.
  */
-export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false, voiceTextExpanded = false, onVoiceTextToggle }: MessageBubbleProps) {
     switch (msg.mediaType) {
         case "red_packet":
             return <RedPacketBubble msg={msg} charName={charName} userName={userName} groupSize={groupSize} onShowDetail={onShowDetail} />;
@@ -120,7 +122,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
         case "xiaohongshu_note_share":
             return <XiaohongshuShareBubble msg={msg} />;
         case "audio":
-            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} defaultTranslationExpanded={defaultTranslationExpanded} />;
+            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} voiceTextExpanded={voiceTextExpanded} onVoiceTextToggle={onVoiceTextToggle} />;
         default: {
             // 聊天插件自定义消息类型：mediaType = "plugin:<kind>"，由注册插件渲染
             if (msg.mediaType?.startsWith("plugin:")) {
@@ -161,6 +163,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
     if (prev.characterId !== next.characterId) return false;
     if (prev.displayContent !== next.displayContent) return false;
     if (prev.defaultTranslationExpanded !== next.defaultTranslationExpanded) return false;
+    if (prev.voiceTextExpanded !== next.voiceTextExpanded) return false;
     return true;
 });
 
@@ -2231,7 +2234,7 @@ function synthesizeVoiceForMessage(msgId: string, characterId: string, speechTex
     return task;
 }
 
-function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpanded = false }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; defaultTranslationExpanded?: boolean }) {
+function VoiceMessageBubble({ msg, characterId, onUpdate, voiceTextExpanded = false, onVoiceTextToggle }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; voiceTextExpanded?: boolean; onVoiceTextToggle?: () => void }) {
     const [playing, setPlaying] = useState(false);
     const [synthesizing, setSynthesizing] = useState(false);
     const [synthFailed, setSynthFailed] = useState(false);
@@ -2297,6 +2300,11 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
             });
     };
 
+    const handleVoiceClick = () => {
+        handlePlay();
+        if (msg.mediaData?.label) onVoiceTextToggle?.();
+    };
+
     useEffect(() => () => { audioRef.current?.pause(); }, []);
 
     // Wave bars — slightly irregular heights so the idle state already looks intentional.
@@ -2308,7 +2316,18 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
     });
 
     return (
-        <div className="voice-msg-bubble" onClick={handlePlay}
+        <div
+            className="voice-msg-bubble"
+            onClick={handleVoiceClick}
+            role="button"
+            tabIndex={0}
+            aria-expanded={msg.mediaData?.label ? voiceTextExpanded : undefined}
+            aria-label={msg.mediaData?.label ? (voiceTextExpanded ? "播放语音并收起文字" : "播放语音并展开文字") : "播放语音"}
+            onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                handleVoiceClick();
+            }}
             style={{ minWidth: `${Math.min(60 + duration * 8, 220)}px` }}
         >
             <div className="voice-msg-icon-shell">
