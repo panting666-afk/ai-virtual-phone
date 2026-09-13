@@ -18,8 +18,10 @@ export type DebugPromptSnapshot = {
     characterName?: string;
     presetName?: string;
     messages: { role: string; content: string | LLMContentPart[]; marker?: string }[];
-    /** 与实际调用相同的供应商 JSON 请求体；不包含鉴权请求头。 */
-    requestBody?: string;
+    /** 供应商会合并进 system 的瞬时上下文，仅用于单独显眼展示，不参与消息/token 统计。 */
+    spotlightMessages?: { role: string; content: string | LLMContentPart[]; marker?: string }[];
+    /** 只保留请求体字符数用于发送前估算，不在查看器或日志中保存/展示完整 JSON。 */
+    requestBodyChars?: number;
     /** 请求完成后由供应商返回的实测 token；预览阶段通常不存在。 */
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     tools?: { name: string; description?: string }[];

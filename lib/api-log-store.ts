@@ -10,8 +10,6 @@ export type DebugInfo = {
     characterName?: string;
     model?: string;
     messages: { role: string; content: string; marker?: string }[];
-    /** 实际发往供应商的完整 JSON 请求体（不含鉴权请求头）。旧日志可能没有此字段。 */
-    requestBody?: string;
     rawResponse: string;
     timestamp: string;
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };

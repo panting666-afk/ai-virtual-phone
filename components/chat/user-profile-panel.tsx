@@ -763,7 +763,6 @@ function ApiLogViewer({ onBack }: { onBack: () => void }) {
                                                 </div>
                                                 <div className="menu-desc mt-1 flex gap-3 flex-wrap">
                                                     {log.model && <span>Model: {log.model}</span>}
-                                                    {log.requestBody && <span>请求估算: ~{Math.ceil(log.requestBody.length / 3).toLocaleString()} tokens</span>}
                                                     {log.usage && (
                                                         <span>API 实测（输入/输出/总计）: {log.usage.prompt_tokens ?? "—"} / {log.usage.completion_tokens ?? "—"} / {log.usage.total_tokens ?? "—"}</span>
                                                     )}
@@ -780,18 +779,8 @@ function ApiLogViewer({ onBack }: { onBack: () => void }) {
 
                                         {isOpen && (
                                             <div className="api-log-panel">
-                                                {log.requestBody && (
-                                                    <>
-                                                        <div className="font-bold px-1 pt-3 pb-2 text-[var(--c-warning)]">
-                                                            实际请求体（完整 JSON，不含鉴权请求头）
-                                                        </div>
-                                                        <div className="api-log-entry whitespace-pre-wrap break-all leading-[1.4]">
-                                                            {log.requestBody}
-                                                        </div>
-                                                    </>
-                                                )}
                                                 <div className="font-bold px-1 pt-3 pb-2 text-[var(--c-warning)]">
-                                                    消息视图 ({log.messages.length} 条)
+                                                    Prompt ({log.messages.length} 条消息)
                                                 </div>
                                                 {log.messages.map((m, i) => (
                                                     <div key={i} className="api-log-entry" data-role={m.role}>

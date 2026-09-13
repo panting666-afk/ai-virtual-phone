@@ -751,7 +751,7 @@ export function DebugPromptPanel() {
     const totalChars = displayMessages.reduce((sum, m) => sum + stringifyContent(m.content).length, 0);
     // 聊天页有与实际调用一致的供应商请求体，按统一口径估算；其他预览仍按纯文本粗估。
     // 真实 token 只能在请求完成后由供应商 usage 给出，会因模型 tokenizer 和协议开销而不同。
-    const requestBodyChars = mode === "chat" ? activeChatSnapshot?.requestBody?.length : undefined;
+    const requestBodyChars = mode === "chat" ? activeChatSnapshot?.requestBodyChars : undefined;
     const actualPromptTokens = mode === "chat" ? activeChatSnapshot?.usage?.prompt_tokens : undefined;
     const estimatedTokens = requestBodyChars !== undefined
         ? Math.ceil(requestBodyChars / 3)
@@ -1183,6 +1183,20 @@ export function DebugPromptPanel() {
             {/* Body */}
             <div ref={scrollRef} className="pv-body">
                 {error && <div className="pv-error">{error}</div>}
+
+                {mode === "chat" && activeChatSnapshot?.spotlightMessages?.map((message, index) => (
+                    <div key={`spotlight-${index}`} className="pv-msg">
+                        <div className="pv-msg-header">
+                            <span className="pv-msg-role" data-role={message.role}>{message.role}</span>
+                            <span className="pv-msg-badge">{message.marker || "瞬时上下文"}</span>
+                            <span style={{ flex: 1 }} />
+                            <span className="pv-msg-toggle">已包含在合并后的 system 中</span>
+                        </div>
+                        <div className="pv-msg-body whitespace-pre-wrap">
+                            {stringifyContent(message.content)}
+                        </div>
+                    </div>
+                ))}
 
                 {displayMessages.map((msg, idx) => {
                     const isExpanded = expandedIdx.has(idx);

@@ -104,13 +104,13 @@ export function buildMusicListeningPrompt(snapshot?: MusicControlSnapshot | null
 export function injectMusicListeningPrompt(messages: LLMMessage[]): void {
     const prompt = buildMusicListeningPrompt();
     if (!prompt) return;
-    const systemIndex = messages.findIndex(message => message.role === "system" && typeof message.content === "string");
-    if (systemIndex >= 0) {
-        messages[systemIndex] = {
-            ...messages[systemIndex],
-            content: `${messages[systemIndex].content}\n\n${prompt}`,
-        };
-        return;
-    }
-    messages.unshift({ role: "system", content: prompt });
+    // 独立成一条带标记的消息，避免埋进巨大的主 system prompt 后在查看器里难以发现。
+    // 放在开头连续 system 消息的末尾，Anthropic/Gemini 仍会把它作为系统指令发送。
+    let insertIndex = 0;
+    while (insertIndex < messages.length && messages[insertIndex].role === "system") insertIndex += 1;
+    messages.splice(insertIndex, 0, {
+        role: "system",
+        content: prompt,
+        _debugMeta: { marker: "🎵 一起听·实时播放器" },
+    });
 }

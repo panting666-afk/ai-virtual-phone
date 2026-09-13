@@ -491,10 +491,6 @@ function apiLogChannelFor(options?: { appId?: string }): { source: "chat" | "qa"
         : { source: "chat", channel: "chat" };
 }
 
-function stringifyRequestBody(request: ReturnType<typeof buildProviderRequest>): string {
-    return JSON.stringify(request.body);
-}
-
 function stringifyLogContent(content: string | LLMContentPart[]): string {
     return typeof content === "string" ? content : JSON.stringify(content);
 }
@@ -548,8 +544,16 @@ export function publishDebugPromptSnapshot(params: {
         sessionId: options?.debugSessionId,
         characterName: meta?.characterName,
         presetName: preset?.name || "默认预设",
+        // 保持查看器既有逻辑：展示供应商协议转换后的最终消息。
         messages: debugMessagesFromRequest(request),
-        requestBody: stringifyRequestBody(request),
+        // Anthropic/Gemini 会把连续 system 合成一个顶层字段；额外单列瞬时音乐上下文，
+        // 只帮助查看，不替换/修改原消息，也不重复计入 token 与字符统计。
+        spotlightMessages: request.providerKind === "openai-compatible"
+            ? undefined
+            : request.messagesForLog
+                .filter(message => message.marker === "🎵 一起听·实时播放器")
+                .map(message => ({ ...message })),
+        requestBodyChars: JSON.stringify(request.body).length,
         tools: tools?.map(tool => ({ name: tool.name, description: tool.description })),
     };
     if (typeof window !== "undefined") setDebugPromptSnapshot(snapshot);
@@ -865,7 +869,6 @@ export async function sendLLMStreamRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
-            requestBody: stringifyRequestBody(request),
             rawResponse: JSON.stringify({ content: rawOutput, reasoning: streamedReasoning, raw: rawResponse }),
             usage,
             reasoning: streamedReasoning.trim() || undefined,
@@ -1003,7 +1006,6 @@ export async function sendLLMRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
-            requestBody: requestBodyJson,
             rawResponse: rawOutput,
             usage: parsed.usage,
             // 思维链只经 onReasoning 回调透传，之前没进日志；这里单独存一份原文
@@ -1228,7 +1230,6 @@ export async function sendLLMToolStreamRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
-            requestBody: stringifyRequestBody(request),
             rawResponse: logEntryRaw,
             usage,
             reasoning: reasoning || undefined,
@@ -1336,7 +1337,6 @@ export async function sendLLMToolRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
-            requestBody: stringifyRequestBody(request),
             rawResponse,
             usage: parsed.usage,
         });
