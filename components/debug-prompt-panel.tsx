@@ -749,7 +749,13 @@ export function DebugPromptPanel() {
     }
 
     const totalChars = displayMessages.reduce((sum, m) => sum + stringifyContent(m.content).length, 0);
-    const estimatedTokens = Math.round(totalChars / 2);
+    // 聊天页有与实际调用一致的供应商请求体，按统一口径估算；其他预览仍按纯文本粗估。
+    // 真实 token 只能在请求完成后由供应商 usage 给出，会因模型 tokenizer 和协议开销而不同。
+    const requestBodyChars = mode === "chat" ? activeChatSnapshot?.requestBody?.length : undefined;
+    const actualPromptTokens = mode === "chat" ? activeChatSnapshot?.usage?.prompt_tokens : undefined;
+    const estimatedTokens = requestBodyChars !== undefined
+        ? Math.ceil(requestBodyChars / 3)
+        : Math.round(totalChars / 2);
 
     const debugTabs: [DebugMode, string][] = [
         ["chat", activeChatSession?.isGroup ? "群聊" : "聊天"],
@@ -1253,7 +1259,15 @@ export function DebugPromptPanel() {
                     <div className="pv-footer">
                         <span>{displayMessages.length} 条消息</span>
                         <span>{totalChars.toLocaleString()} 字符</span>
-                        <span>~{estimatedTokens.toLocaleString()} tokens</span>
+                        {actualPromptTokens !== undefined ? (
+                            <span title="供应商对这次实际请求返回的输入 token，与底层调用日志口径相同">
+                                {actualPromptTokens.toLocaleString()} tokens（API 实测输入）
+                            </span>
+                        ) : (
+                            <span title="发送前估算；真实输入 token 以底层调用日志中的 API 实测值为准">
+                                ~{estimatedTokens.toLocaleString()} tokens（{requestBodyChars !== undefined ? "请求体估算" : "文本粗估"}）
+                            </span>
+                        )}
                     </div>
                 </>
             )}

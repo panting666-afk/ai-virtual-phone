@@ -108,10 +108,10 @@ export async function simpleLLMCall(
     const headers = buildRequestHeaders(config, baseUrl);
     const temperature = options?.temperature ?? 0.7;
     const max_tokens = options?.max_tokens;
+    let body = "";
 
     try {
         let fetchUrl: string;
-        let body: string;
 
         if (isNativeAnthropicApi(config)) {
             // Anthropic Messages API
@@ -170,7 +170,8 @@ export async function simpleLLMCall(
                 source: "background",
                 model: config.defaultModel,
                 messages: messages.map(m => ({ role: m.role, content: m.content })),
-                rawResponse: `[API 错误 ${res.status}] ${errText.slice(0, 2000)}`,
+                requestBody: body,
+                rawResponse: `[API 错误 ${res.status}] ${errText}`,
             });
             return { content: null, error: `API 错误 ${res.status}: ${errText.slice(0, 200)}` };
         }
@@ -186,6 +187,7 @@ export async function simpleLLMCall(
             source: "background",
             model: config.defaultModel,
             messages: messages.map(m => ({ role: m.role, content: m.content })),
+            requestBody: body,
             rawResponse: content ?? describeEmptyLLMResponse(data, finishReason, wasTruncated, config),
             usage: extractUsage(data),
         });
@@ -203,6 +205,7 @@ export async function simpleLLMCall(
             source: "background",
             model: config.defaultModel,
             messages: messages.map(m => ({ role: m.role, content: m.content })),
+            requestBody: body,
             rawResponse: `[请求失败] ${err instanceof Error ? err.message : String(err)}`,
         });
         return { content: null, error: `请求失败: ${err instanceof Error ? err.message : String(err)}` };

@@ -492,6 +492,7 @@ export function createBuiltinPreset(): PresetConfig {
                     "<timed_wake_instruction>",
                     "{{timeContext}}",
                     "到了你之前打算主动找 {{user}} 的时间点（约 {{timedWakeElapsedMinutes}} 分钟前你这么决定的）——你当时想着：“{{timedWakeIntent}}”。这不是睡醒，而是你之前约好这会儿主动联系。现在你可以主动发消息，或先按住不发。",
+                    "如果上面的目的以“用户日程开始提醒”开头，这是用户明确设置的日程提醒：必须发送一条提醒，不可以选择按住不发；提醒要自然、简洁，并说清该做什么了。",
                     "如果发送消息，内容必须自然，遵循chat_output_format的格式，不要机械复述当时的想法。",
                     "{{statusRegionExampleLine}}",
                     "</timed_wake_instruction>",

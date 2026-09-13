@@ -40,6 +40,7 @@ import {
 } from "./chat-engine";
 import type { CustomAppPromptProfile } from "./custom-app-types";
 import { isNeteaseConfigured } from "./music-service";
+import { injectMusicListeningPrompt } from "./music-listening-context";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
 import {
@@ -493,6 +494,8 @@ async function buildGroupChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
     });
+    // 与单聊一致：宿主在线群聊能一起听，线下记录和自定义 APP 不读取桌面播放器。
+    if (activeAppTags.includes("group_chat") && !isOfflineMode) injectMusicListeningPrompt(llmMessages);
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
             role: "system",

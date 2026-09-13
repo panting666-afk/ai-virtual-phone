@@ -9,6 +9,7 @@ export type MusicControlSnapshot = {
     playMode: PlayMode;
     queue: MusicTrack[];
     volume: number;
+    floatDismissed: boolean;
 };
 
 export type MusicControlBridge = {

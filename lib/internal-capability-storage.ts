@@ -249,25 +249,29 @@ const MUSIC_CONTROL_USAGE_GUIDE = [
 const CALENDAR_MANAGEMENT_USAGE_GUIDE = [
     "以下是你获取指令的返回结果：",
     "服务：日历管理",
-    "用途：查看、添加、修改、取消你本周或指定日期所在周的日程。",
+    "用途：查看、添加、修改、取消用户或你自己的日程。默认操作用户的日程。",
+    "归属判断必须按语义：用户说“我几点要做什么”“帮我安排/记一下某事”等个人安排，都属于 user；只有用户明确说这是你的安排、让你记到自己的日历时才用 character。不要靠匹配某个固定短语。",
     "",
     "执行时必须使用下面的具体动作名，不要输出“日历管理”本身。",
     "",
     "动作：查看日程",
-    "描述：查看当前角色指定周的日程，返回 itemId，可用于修改或取消。",
+    "描述：查看指定周的日程，默认查看用户日程，返回 itemId，可用于修改或取消。",
     "参数：",
     "  - date (string): YYYY-MM-DD，可选；留空表示当前日期所在周",
+    "  - owner (string): user|character，可选；默认 user",
     "示例：",
     '[执行动作:查看日程({"date":"2026-03-17"})]',
     "",
     "动作：添加日程",
-    "描述：添加一条日程。",
+    "描述：添加一条日程。默认添加到用户日历；用户日程默认由当前聊天中的你在开始时间提醒。",
     "参数：",
     "  - date (string): 日期，YYYY-MM-DD",
     "  - startTime (string): 开始时间，HH:MM，范围 08:00-23:00",
     "  - endTime (string): 结束时间，HH:MM，必须晚于开始时间",
     "  - location (string): 地点；不确定写“无”",
     "  - title (string): 事项",
+    "  - owner (string): user|character，可选；默认 user。只有明确是你的日程时才填 character",
+    "  - remindAtStart (boolean): 用户日程是否在开始时间由你提醒，可选；默认 true",
     "示例：",
     '[执行动作:添加日程({"date":"2026-03-17","startTime":"14:00","endTime":"16:00","location":"咖啡店","title":"和小明喝咖啡"})]',
     "",
@@ -281,6 +285,8 @@ const CALENDAR_MANAGEMENT_USAGE_GUIDE = [
     "  - endTime (string): 新结束时间，HH:MM",
     "  - location (string): 新地点",
     "  - title (string): 新事项",
+    "  - owner (string): user|character，可选；默认 user",
+    "  - remindAtStart (boolean): 可选；不填保留原提醒设置",
     "示例：",
     '[执行动作:修改日程({"keyword":"部门周会","date":"2026-03-18","startTime":"10:00","endTime":"12:00","location":"公司会议室","title":"部门周会改期"})]',
     "",
@@ -289,12 +295,13 @@ const CALENDAR_MANAGEMENT_USAGE_GUIDE = [
     "参数：",
     "  - itemId (string): 查看日程返回的日程 ID，可选",
     "  - keyword (string): 事项关键词；没有 itemId 时必填",
+    "  - owner (string): user|character，可选；默认 user",
     "示例：",
     '[执行动作:取消日程({"keyword":"部门周会"})]',
     "",
     "注意：",
     "- 日期必须使用 YYYY-MM-DD，时间必须使用 24 小时制 HH:MM。",
-    "- 日程时间只能在 08:00-23:00 之间。",
+    "- 没有 owner 时必须按 user 执行；不要因为动作由你调用就把日程归给自己。",
     "- 修改和取消前，如果不确定 itemId 或关键词是否足够明确，先执行“查看日程”。",
     "- 添加、修改、取消会直接执行。执行时只输出执行动作指令，不要附加闲聊内容。",
 ].join("\n");
@@ -456,6 +463,7 @@ const CALENDAR_LIST_PARAMETER_SCHEMA = JSON.stringify({
     type: "object",
     properties: {
         date: { type: "string", description: "YYYY-MM-DD，可选；留空表示当前日期所在周" },
+        owner: { type: "string", enum: ["user", "character"], description: "日程归属；默认 user。只有用户明确说是角色自己的日程时使用 character" },
     },
 });
 
@@ -467,6 +475,8 @@ const CALENDAR_ADD_PARAMETER_SCHEMA = JSON.stringify({
         endTime: { type: "string", description: "结束时间，HH:MM，必须晚于开始时间" },
         location: { type: "string", description: "地点；不确定写“无”" },
         title: { type: "string", description: "事项" },
+        owner: { type: "string", enum: ["user", "character"], description: "日程归属；默认 user" },
+        remindAtStart: { type: "boolean", description: "用户日程开始时是否由当前聊天角色提醒；默认 true" },
     },
     required: ["date", "startTime", "endTime", "title"],
 });
@@ -481,6 +491,8 @@ const CALENDAR_UPDATE_PARAMETER_SCHEMA = JSON.stringify({
         endTime: { type: "string", description: "新结束时间，HH:MM" },
         location: { type: "string", description: "新地点" },
         title: { type: "string", description: "新事项" },
+        owner: { type: "string", enum: ["user", "character"], description: "日程归属；默认 user" },
+        remindAtStart: { type: "boolean", description: "用户日程是否由当前聊天角色提醒；不填保留原设置" },
     },
     required: ["date", "startTime", "endTime", "title"],
 });
@@ -490,6 +502,7 @@ const CALENDAR_DELETE_PARAMETER_SCHEMA = JSON.stringify({
     properties: {
         itemId: { type: "string", description: "查看日程返回的日程 ID，可选" },
         keyword: { type: "string", description: "事项关键词；没有 itemId 时必填" },
+        owner: { type: "string", enum: ["user", "character"], description: "日程归属；默认 user" },
     },
 });
 
@@ -557,12 +570,12 @@ const MUSIC_CONTROL_SUBTOOLS: InternalToolDefinition[] = [
 const CALENDAR_MANAGEMENT_SUBTOOLS: InternalToolDefinition[] = [
     {
         name: "查看日程",
-        description: "查看当前角色指定周的日程。",
+        description: "查看用户或角色指定周的日程；默认查看用户日程。",
         parameterSchema: CALENDAR_LIST_PARAMETER_SCHEMA,
     },
     {
         name: "添加日程",
-        description: "添加一条日程。",
+        description: "添加用户或角色日程；默认写入用户日历并由当前聊天角色提醒。",
         parameterSchema: CALENDAR_ADD_PARAMETER_SCHEMA,
     },
     {
@@ -1218,7 +1231,7 @@ const BUILTIN_INTERNAL_CAPABILITIES: InternalCapabilityConfig[] = [
     {
         id: CALENDAR_MANAGEMENT_CAPABILITY_ID,
         name: "日历管理",
-        description: "查看、添加、修改和取消当前角色的日程安排。",
+        description: "查看、添加、修改和取消用户或角色的日程安排；默认操作用户日历。",
         enabled: false,
         mode: "auto",
         createdAt: 0,

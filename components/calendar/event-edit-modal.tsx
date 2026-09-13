@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronLeft, Trash2 } from "lucide-react";
-import { Input } from "../ui/form";
+import { Input, Select } from "../ui/form";
 import type { CalendarColorKey } from "@/lib/calendar-types";
 import { CALENDAR_COLOR_KEYS } from "@/lib/calendar-utils";
 
@@ -16,6 +16,7 @@ export type CalendarEventDraft = {
   title: string;
   emoji: string;
   colorKey?: CalendarColorKey;
+  reminderCharacterId?: string;
 };
 
 const EMOJI_PRESETS = [
@@ -41,12 +42,14 @@ export function CalendarEventEditModal({
   onSave,
   onDelete,
   onClose,
+  reminderOptions,
 }: {
   draft: CalendarEventDraft;
   onChange: (next: CalendarEventDraft) => void;
   onSave: () => void;
   onDelete: () => void;
   onClose: () => void;
+  reminderOptions?: Array<{ id: string; name: string }>;
 }) {
   return (
     <div className="modal-overlay calendar-edit-modal-overlay" onClick={onClose}>
@@ -123,6 +126,22 @@ export function CalendarEventEditModal({
               placeholder="例如：公司会议室 / 家里 / 商场"
             />
           </div>
+
+          {reminderOptions ? (
+            <div className="flex flex-col gap-1">
+              <label className="menu-desc ml-1">开始时由谁提醒</label>
+              <Select
+                value={draft.reminderCharacterId || ""}
+                onChange={e => onChange({ ...draft, reminderCharacterId: e.target.value || undefined })}
+              >
+                <option value="">不提醒</option>
+                {reminderOptions.map(option => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </Select>
+              <span className="menu-desc ml-1">到开始时间后，所选角色会在聊天中主动提醒你。</span>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-1">
             <label className="menu-desc ml-1">图标（点选，再点一次取消）</label>

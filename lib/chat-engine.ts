@@ -53,7 +53,7 @@ import {
     type LlmToolDefinition,
 } from "./llm-provider-adapter";
 import { setDebugPromptSnapshot, type DebugPromptSnapshot } from "./debug-store";
-import { extractFinishReason } from "./api-helpers";
+import { extractFinishReason, extractUsage } from "./api-helpers";
 import { fetchLlmPayload } from "./llm-http";
 import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
@@ -71,6 +71,7 @@ import { loadAllTracks } from "./music-storage";
 import { getActiveAppTags } from "./content-tag-utils";
 import { isNeteaseConfigured, getUserPlaylists, getPlaylistTracks, checkLoginStatus, loadMusicApiConfig } from "./music-service";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
+import { injectMusicListeningPrompt } from "./music-listening-context";
 import { getWeekStartIso } from "./calendar-utils";
 import { buildCharacterTimeContext } from "./character-time";
 import { getPromptTimestampOptionsForTimeContext } from "./prompt-time";
@@ -490,6 +491,14 @@ function apiLogChannelFor(options?: { appId?: string }): { source: "chat" | "qa"
         : { source: "chat", channel: "chat" };
 }
 
+function stringifyRequestBody(request: ReturnType<typeof buildProviderRequest>): string {
+    return JSON.stringify(request.body);
+}
+
+function stringifyLogContent(content: string | LLMContentPart[]): string {
+    return typeof content === "string" ? content : JSON.stringify(content);
+}
+
 export function appendEmptyGenerateGuardMessage(
     messages: LLMMessage[],
     config: ApiConfig,
@@ -540,6 +549,7 @@ export function publishDebugPromptSnapshot(params: {
         characterName: meta?.characterName,
         presetName: preset?.name || "默认预设",
         messages: debugMessagesFromRequest(request),
+        requestBody: stringifyRequestBody(request),
         tools: tools?.map(tool => ({ name: tool.name, description: tool.description })),
     };
     if (typeof window !== "undefined") setDebugPromptSnapshot(snapshot);
@@ -719,13 +729,14 @@ async function readSseStream(
     providerKind: ChatCompletionStreamResult["providerKind"],
     callbacks?: ChatCompletionStreamCallbacks,
     stripTimestamps = true,
-): Promise<{ content: string; rawResponse: string }> {
+): Promise<{ content: string; rawResponse: string; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }> {
     if (!response.body) throw new ChatEngineError("流式响应没有 body。");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let content = "";
     let rawResponse = "";
+    let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
     // 时间戳剥离器会一直扣住流尾巴的 64 个字符等括号闭合，流结束才吐出来。
     // 要求"所见即模型所写"的调用方（独家特调）把它整个关掉：增量来一个字出一个字，
     // 否则模型在末尾写机括标记行（〔记〕这类）时，整行都压在扣留窗里，看起来像卡死。
@@ -749,9 +760,10 @@ async function readSseStream(
         }
     };
     const handleEvent = async (eventText: string) => {
-        // 原始流只为调试快照保留头部：长输出整条累积会把低内存设备的 WebView 顶爆
-        if (rawResponse.length < 65_536) rawResponse += `${eventText}\n`;
+        rawResponse += `${eventText}\n`;
         for (const parsed of sseParser.pushEvent(eventText)) {
+            const parsedUsage = extractUsage(parsed as Record<string, unknown>);
+            if (parsedUsage) usage = parsedUsage;
             await handleParsed(parsed);
         }
     };
@@ -778,7 +790,7 @@ async function readSseStream(
         content += finalContent;
         await callbacks?.onDelta?.(finalContent);
     }
-    return { content, rawResponse };
+    return { content, rawResponse, usage };
 }
 
 export async function sendLLMStreamRequest(
@@ -813,7 +825,7 @@ export async function sendLLMStreamRequest(
     } : undefined;
     const requestMessages = toLlmRequestMessages(afterPlugins.messages);
     const request = buildProviderRequest(config, effectivePreset, requestMessages, { stream: true });
-    publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "completion" });
+    const debugSnapshot = publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "completion" });
     const llmAbort = new AbortController();
     const llmTimeout = setTimeout(() => llmAbort.abort(), 500_000);
     const detachExternalAbort = attachExternalAbort(llmAbort, options?.signal);
@@ -835,7 +847,7 @@ export async function sendLLMStreamRequest(
                 await (pluginCallbacks ?? callbacks)?.onReasoningDelta?.(text);
             },
         };
-        const { content: streamedContent, rawResponse } = await readSseStream(response, request.providerKind, streamLogCallbacks, !options?.skipTimestampStrip);
+        const { content: streamedContent, rawResponse, usage } = await readSseStream(response, request.providerKind, streamLogCallbacks, !options?.skipTimestampStrip);
         if (!streamedContent.trim()) {
             throw new ChatEngineError("流式响应没有解析到文本增量。");
         }
@@ -846,16 +858,21 @@ export async function sendLLMStreamRequest(
         // in the "底层调用大模型日志" panel. reasoning 单独存思维链原文，供「查看原始」直接展示。
         const sanitizedMessages = request.messagesForLog.map(m => ({
             ...m,
-            content: typeof m.content === "string" ? m.content : "[vision: 含图片的多模态消息]",
+            content: stringifyLogContent(m.content),
         }));
         pushApiLog({
             characterName: meta?.characterName,
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
-            rawResponse: rawOutput,
+            requestBody: stringifyRequestBody(request),
+            rawResponse: JSON.stringify({ content: rawOutput, reasoning: streamedReasoning, raw: rawResponse }),
+            usage,
             reasoning: streamedReasoning.trim() || undefined,
         });
+        if (usage && typeof window !== "undefined") {
+            setDebugPromptSnapshot({ ...debugSnapshot, usage });
+        }
 
         if (!options?.skipOutputRegex) {
             const macroEngine = new MacroEngine(meta?.characterName ?? "", meta?.userName ?? "用户");
@@ -907,7 +924,7 @@ export async function sendLLMRequest(
     const effectivePreset = afterPlugins.preset;
     const requestMessages = toLlmRequestMessages(afterPlugins.messages);
     const request = buildProviderRequest(config, effectivePreset, requestMessages);
-    publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "completion" });
+    const debugSnapshot = publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "completion" });
     const requestBodyJson = JSON.stringify(request.body);
     const requestBodySize = requestBodyJson.length;
     const requestTokenEstimate = Math.ceil(requestBodySize / 3);
@@ -979,18 +996,22 @@ export async function sendLLMRequest(
         // Store API log entry (strip base64 image data to avoid bloating localStorage)
         const sanitizedMessages = request.messagesForLog.map(m => ({
             ...m,
-            content: typeof m.content === "string" ? m.content : "[vision: 含图片的多模态消息]",
+            content: stringifyLogContent(m.content),
         }));
         pushApiLog({
             characterName: meta?.characterName,
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
+            requestBody: requestBodyJson,
             rawResponse: rawOutput,
             usage: parsed.usage,
             // 思维链只经 onReasoning 回调透传，之前没进日志；这里单独存一份原文
             reasoning: parsed.reasoning || undefined,
         });
+        if (parsed.usage && typeof window !== "undefined") {
+            setDebugPromptSnapshot({ ...debugSnapshot, usage: parsed.usage });
+        }
 
         if (options?.skipOutputRegex) {
             return rawOutput;
@@ -1102,11 +1123,12 @@ export async function sendLLMToolStreamRequest(
     const afterPlugins = await applyChatPluginLlmRequest(preset, messages, pluginPurpose, options?.debugSessionId);
     const effectivePreset = afterPlugins.preset;
     const request = buildProviderRequest(config, effectivePreset, afterPlugins.messages, { tools, stream: true, maxTokens: options?.maxTokens });
-    publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "native-tools-stream", tools });
+    const debugSnapshot = publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "native-tools-stream", tools });
     const llmAbort = new AbortController();
     const llmTimeout = setTimeout(() => llmAbort.abort(), 500_000);
     const detachExternalAbort = attachExternalAbort(llmAbort, options?.signal);
     let rawResponse = "";
+    let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
     let content = "";
     let reasoning = "";
     const contentStripper = createStreamingTimestampStripper();
@@ -1131,6 +1153,8 @@ export async function sendLLMToolStreamRequest(
         const handleParsedDelta = async (data: unknown) => {
             {
                     const delta = parseProviderStreamDelta(request.providerKind, data);
+                    const parsedUsage = extractUsage(data as Record<string, unknown>);
+                    if (parsedUsage) usage = parsedUsage;
                     if (delta.reasoning) {
                         reasoning += delta.reasoning;
                         await callbacks?.onReasoningDelta?.(delta.reasoning);
@@ -1170,7 +1194,7 @@ export async function sendLLMToolStreamRequest(
             const parsed = parseSseEvents(buffer);
             buffer = parsed.rest;
             for (const event of parsed.events) {
-                if (rawResponse.length < 65_536) rawResponse += `${event}\n`;
+                rawResponse += `${event}\n`;
                 for (const data of sseParser.pushEvent(event)) {
                     await handleParsedDelta(data);
                 }
@@ -1178,7 +1202,7 @@ export async function sendLLMToolStreamRequest(
         }
 
         if (buffer.trim()) {
-            if (rawResponse.length < 65_536) rawResponse += buffer.trim();
+            rawResponse += buffer.trim();
             for (const data of sseParser.pushEvent(buffer)) {
                 await handleParsedDelta(data);
             }
@@ -1195,7 +1219,7 @@ export async function sendLLMToolStreamRequest(
 
         const sanitizedMessages = request.messagesForLog.map(m => ({
             ...m,
-            content: typeof m.content === "string" ? m.content : "[vision: 含图片的多模态消息]",
+            content: stringifyLogContent(m.content),
         }));
         const { calls: toolCalls, truncatedNames } = finalizeStreamToolCalls(toolDrafts);
         const logEntryRaw = JSON.stringify({ content, reasoning, toolCalls, raw: rawResponse });
@@ -1204,9 +1228,14 @@ export async function sendLLMToolStreamRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
+            requestBody: stringifyRequestBody(request),
             rawResponse: logEntryRaw,
+            usage,
             reasoning: reasoning || undefined,
         });
+        if (usage && typeof window !== "undefined") {
+            setDebugPromptSnapshot({ ...debugSnapshot, usage });
+        }
 
         if (!content && toolCalls.length === 0 && truncatedNames.length === 0) {
             throw new ChatEngineError("原生动作流式响应没有解析到文本或动作。");
@@ -1220,6 +1249,7 @@ export async function sendLLMToolStreamRequest(
             truncatedToolCalls: truncatedNames.length ? truncatedNames : undefined,
             rawResponse: logEntryRaw,
             providerKind: request.providerKind,
+            usage,
         };
     } catch (error: unknown) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -1256,7 +1286,7 @@ export async function sendLLMToolRequest(
     const afterPlugins = await applyChatPluginLlmRequest(preset, messages, pluginPurpose, options?.debugSessionId);
     const effectivePreset = afterPlugins.preset;
     const request = buildProviderRequest(config, effectivePreset, afterPlugins.messages, { tools });
-    publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "native-tools", tools });
+    const debugSnapshot = publishDebugPromptSnapshot({ request, config, preset: effectivePreset, meta, options, requestKind: "native-tools", tools });
     const llmAbort = new AbortController();
     const llmTimeout = setTimeout(() => llmAbort.abort(), 500_000);
     const detachExternalAbort = attachExternalAbort(llmAbort, options?.signal);
@@ -1292,7 +1322,7 @@ export async function sendLLMToolRequest(
 
         const sanitizedMessages = request.messagesForLog.map(m => ({
             ...m,
-            content: typeof m.content === "string" ? m.content : "[vision: 含图片的多模态消息]",
+            content: stringifyLogContent(m.content),
         }));
         const rawResponse = JSON.stringify({
             content: parsed.content,
@@ -1306,9 +1336,13 @@ export async function sendLLMToolRequest(
             ...apiLogChannelFor(options),
             model: config.defaultModel,
             messages: sanitizedMessages,
+            requestBody: stringifyRequestBody(request),
             rawResponse,
             usage: parsed.usage,
         });
+        if (parsed.usage && typeof window !== "undefined") {
+            setDebugPromptSnapshot({ ...debugSnapshot, usage: parsed.usage });
+        }
 
         if (!options?.skipOutputRegex && rawOutput) {
             const macroEngine = new MacroEngine(meta?.characterName ?? "", meta?.userName ?? "用户");
@@ -1937,6 +1971,8 @@ export async function buildChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
     });
+    // 只在宿主主聊天中附加瞬时播放状态；工坊、自定义 APP 与线下模式不应感知桌面播放器。
+    if (resolvedAppId === "chat" && !isOfflineMode) injectMusicListeningPrompt(llmMessages);
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
             role: "system",

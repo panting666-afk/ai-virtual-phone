@@ -429,6 +429,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
                 playMode,
                 queue,
                 volume,
+                floatDismissed,
             }),
             playTrack: playResolvedTrack,
             playByQuery,
@@ -442,7 +443,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         });
         return () => registerMusicControlBridge(null);
     }, [
-        currentTrack, isPlaying, currentTime, duration, playMode, queue, volume,
+        currentTrack, isPlaying, currentTime, duration, playMode, queue, volume, floatDismissed,
         playResolvedTrack, playByQuery, addToQueue, pause, resume, stop, next, prev, setPlayMode,
     ]);
 

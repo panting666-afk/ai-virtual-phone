@@ -47,6 +47,7 @@ import {
 import { CalendarMonthPage } from "./calendar/month-page";
 import { CalendarDetailPage } from "./calendar/detail-page";
 import { CalendarEventEditModal, type CalendarEventDraft } from "./calendar/event-edit-modal";
+import { clearCalendarItemReminder, syncCalendarItemReminder } from "@/lib/calendar-reminder";
 
 type OwnerOption = {
   key: string;
@@ -197,6 +198,12 @@ export function PhoneCalendarApp({
     () => owners.find(owner => owner.key === selectedKey) ?? owners[0] ?? null,
     [owners, selectedKey],
   );
+  const reminderOptions = useMemo(
+    () => owners
+      .filter((owner): owner is OwnerOption & { ownerType: "character" } => owner.ownerType === "character")
+      .map(owner => ({ id: owner.ownerId, name: owner.name })),
+    [owners],
+  );
   const weekStart = useMemo(() => getWeekStartIso(parseIsoDate(selectedDate)), [selectedDate]);
 
   const itemsByDate = useMemo(() => {
@@ -289,6 +296,7 @@ export function PhoneCalendarApp({
       location: base.location,
       title: base.title,
       emoji: base.emoji,
+      reminderCharacterId: undefined,
     });
   };
 
@@ -304,6 +312,7 @@ export function PhoneCalendarApp({
       title: item.title,
       emoji: item.emoji || "",
       colorKey: item.colorKey,
+      reminderCharacterId: item.reminderCharacterId,
     });
   };
 
@@ -338,7 +347,7 @@ export function PhoneCalendarApp({
       const day = parseIsoDate(startDate);
       day.setDate(day.getDate() + offset);
       const dayIso = formatIsoDate(day);
-      upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
+      const savedPlan = upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
         id: offset === 0 ? editingItem.id : undefined,
         date: dayIso,
         startTime: editingItem.startTime,
@@ -348,7 +357,17 @@ export function PhoneCalendarApp({
         emoji: sanitizeScheduleEmoji(editingItem.emoji),
         source: "manual",
         colorKey: editingItem.colorKey ?? pickScheduleColorKey(editingItem.startTime),
+        reminderCharacterId: selectedOwner.ownerType === "user" ? editingItem.reminderCharacterId : undefined,
       });
+      const savedItem = savedPlan.items.find(item => (
+        (offset === 0 && editingItem.id ? item.id === editingItem.id : false)
+        || (item.date === dayIso
+          && item.startTime === editingItem.startTime
+          && item.endTime === editingItem.endTime
+          && item.title === editingItem.title.trim())
+      ));
+      if (savedItem && selectedOwner.ownerType === "user") syncCalendarItemReminder(savedItem);
+      else if (savedItem) clearCalendarItemReminder(savedItem.id);
     }
     setEditingItem(null);
     refreshPlans();
@@ -358,6 +377,7 @@ export function PhoneCalendarApp({
   const handleDeleteItem = () => {
     if (!selectedOwner || !editingItem?.id) return;
     const targetWeekStart = getWeekStartIso(parseIsoDate(editingItem.originalDate || editingItem.date));
+    clearCalendarItemReminder(editingItem.id);
     deleteCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, targetWeekStart, editingItem.id);
     setEditingItem(null);
     refreshPlans();
@@ -720,6 +740,7 @@ export function PhoneCalendarApp({
           onSave={handleSaveDraft}
           onDelete={handleDeleteItem}
           onClose={() => setEditingItem(null)}
+          reminderOptions={selectedOwner?.ownerType === "user" ? reminderOptions : undefined}
         />
       )}
 

@@ -22,6 +22,8 @@ export type CalendarScheduleItem = {
   emoji?: string;
   colorKey: CalendarColorKey;
   source: "manual" | "generated";
+  /** 用户日程开始时负责提醒的角色；留空表示不提醒。 */
+  reminderCharacterId?: string;
   createdAt: string;
   updatedAt: string;
 };

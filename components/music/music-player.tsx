@@ -17,6 +17,7 @@ import {
 import MusicCommentsPage from "./music-comments";
 import MusicArtistPage from "./music-artist";
 import { loadMusicBg, playerBgStyle, MUSIC_BG_EVENT, type MusicBgConfig } from "@/lib/music-bg";
+import { parseLrcLyrics } from "@/lib/music-listening-context";
 
 const PLAY_MODE_ICONS: Record<PlayMode, { svg: string; label: string }> = {
     sequence: {
@@ -235,17 +236,7 @@ export default function MusicPlayer() {
             parsedLyrics.current = [];
             return;
         }
-        const lines: { time: number; text: string }[] = [];
-        for (const line of lrc.split("\n")) {
-            const match = line.match(/\[(\d+):(\d+(?:\.\d+)?)\](.*)/);
-            if (match) {
-                const mins = parseInt(match[1], 10);
-                const secs = parseFloat(match[2]);
-                lines.push({ time: mins * 60 + secs, text: match[3].trim() });
-            }
-        }
-        lines.sort((a, b) => a.time - b.time);
-        parsedLyrics.current = lines;
+        parsedLyrics.current = parseLrcLyrics(lrc);
     }, [player.currentTrack?.lyrics]);
 
     useEffect(() => {

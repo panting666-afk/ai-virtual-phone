@@ -36,6 +36,7 @@ import {
     upsertCalendarScheduleItem,
 } from "./calendar-storage";
 import type { CalendarOwnerType, CalendarScheduleItem } from "./calendar-types";
+import { clearCalendarItemReminder, syncCalendarItemReminder } from "./calendar-reminder";
 import {
     formatIsoDate,
     getWeekDates,
@@ -1957,13 +1958,14 @@ function executeCalendarListTool(args: Record<string, unknown>, characterId: str
     const date = normalizeCalendarDate(args.date ?? args.weekDate ?? args.week_date, { fallbackToToday: true });
     if (!date) return calendarToolFailure("查看日程", "日期格式无效，请使用 YYYY-MM-DD", "日期格式无效");
     const weekStart = getWeekStartIso(parseIsoDate(date));
-    const plan = loadCalendarWeekPlan("character", characterId, weekStart);
+    const owner = resolveCalendarToolOwner(args, characterId);
+    const plan = loadCalendarWeekPlan(owner.ownerType, owner.ownerId, weekStart);
     return {
         name: "查看日程",
         success: true,
         data: truncate(JSON.stringify({
-            ownerType: "character",
-            ownerId: characterId,
+            ownerType: owner.ownerType,
+            ownerId: owner.ownerId,
             weekStart,
             dates: getWeekDates(weekStart),
             items: sortScheduleItems(plan?.items ?? []).map(formatCalendarItemForTool),
@@ -1978,41 +1980,61 @@ function executeCalendarAddTool(args: Record<string, unknown>, characterId: stri
     const parsed = parseCalendarDraft(args);
     if (!parsed.ok) return calendarToolFailure("添加日程", parsed.error, parsed.notice);
 
+    const owner = resolveCalendarToolOwner(args, characterId);
+    const item = {
+        ...parsed.item,
+        reminderCharacterId: resolveCalendarReminderCharacterId(args, owner.ownerType, characterId, undefined, true),
+    };
     const weekStart = getWeekStartIso(parseIsoDate(parsed.item.date));
-    const plan = upsertCalendarScheduleItem("character", characterId, weekStart, parsed.item);
-    const saved = plan.items.find(item => item.title === parsed.item.title && item.date === parsed.item.date && item.startTime === parsed.item.startTime);
+    const plan = upsertCalendarScheduleItem(owner.ownerType, owner.ownerId, weekStart, item);
+    const saved = plan.items.find(entry => entry.title === item.title && entry.date === item.date && entry.startTime === item.startTime);
+    if (saved && owner.ownerType === "user") syncCalendarItemReminder(saved);
     dispatchCalendarUpdated();
     return {
         name: "添加日程",
         success: true,
-        data: `日程添加成功：${formatCalendarItemSummary(saved ?? parsed.item)}`,
+        data: `${owner.label}日程添加成功：${formatCalendarItemSummary(saved ?? item)}`,
         continueConversation: false,
         persistToHistory: false,
-        userNotice: "已添加日程",
+        userNotice: `已添加到${owner.label}的日程`,
     };
 }
 
 function executeCalendarUpdateTool(args: Record<string, unknown>, characterId: string): ToolResult {
-    const found = findCalendarItemByArgs(args, "character", characterId);
+    const owner = resolveCalendarToolOwner(args, characterId);
+    const found = findCalendarItemByArgs(args, owner.ownerType, owner.ownerId);
     if (!found) return calendarToolFailure("修改日程", "未找到匹配的日程", "未找到要修改的日程");
 
     const parsed = parseCalendarDraft(args);
     if (!parsed.ok) return calendarToolFailure("修改日程", parsed.error, parsed.notice);
 
+    const item = {
+        ...parsed.item,
+        reminderCharacterId: resolveCalendarReminderCharacterId(
+            args,
+            owner.ownerType,
+            characterId,
+            found.item.reminderCharacterId,
+            false,
+        ),
+    };
     const nextWeekStart = getWeekStartIso(parseIsoDate(parsed.item.date));
     if (found.weekStart !== nextWeekStart) {
-        deleteCalendarScheduleItem("character", characterId, found.weekStart, found.item.id);
+        deleteCalendarScheduleItem(owner.ownerType, owner.ownerId, found.weekStart, found.item.id);
     }
-    upsertCalendarScheduleItem("character", characterId, nextWeekStart, {
-        ...parsed.item,
+    const plan = upsertCalendarScheduleItem(owner.ownerType, owner.ownerId, nextWeekStart, {
+        ...item,
         id: found.item.id,
         createdAt: found.item.createdAt,
     });
+    const saved = plan.items.find(entry => entry.id === found.item.id);
+    if (saved && owner.ownerType === "user") syncCalendarItemReminder(saved);
+    else clearCalendarItemReminder(found.item.id);
     dispatchCalendarUpdated();
     return {
         name: "修改日程",
         success: true,
-        data: `日程修改成功：${formatCalendarItemSummary(parsed.item)}`,
+        data: `${owner.label}日程修改成功：${formatCalendarItemSummary(item)}`,
         continueConversation: false,
         persistToHistory: false,
         userNotice: "已修改日程",
@@ -2020,19 +2042,47 @@ function executeCalendarUpdateTool(args: Record<string, unknown>, characterId: s
 }
 
 function executeCalendarDeleteTool(args: Record<string, unknown>, characterId: string): ToolResult {
-    const found = findCalendarItemByArgs(args, "character", characterId);
+    const owner = resolveCalendarToolOwner(args, characterId);
+    const found = findCalendarItemByArgs(args, owner.ownerType, owner.ownerId);
     if (!found) return calendarToolFailure("取消日程", "未找到匹配的日程", "未找到要取消的日程");
 
-    deleteCalendarScheduleItem("character", characterId, found.weekStart, found.item.id);
+    clearCalendarItemReminder(found.item.id);
+    deleteCalendarScheduleItem(owner.ownerType, owner.ownerId, found.weekStart, found.item.id);
     dispatchCalendarUpdated();
     return {
         name: "取消日程",
         success: true,
-        data: `日程已取消：${formatCalendarItemSummary(found.item)}`,
+        data: `${owner.label}日程已取消：${formatCalendarItemSummary(found.item)}`,
         continueConversation: false,
         persistToHistory: false,
         userNotice: "已取消日程",
     };
+}
+
+function resolveCalendarToolOwner(
+    args: Record<string, unknown>,
+    characterId: string,
+): { ownerType: CalendarOwnerType; ownerId: string; label: "用户" | "角色" } {
+    const raw = cleanToolString(args.owner ?? args.ownerType ?? args.owner_type ?? args.target, 32).toLowerCase();
+    // "self/me/我" 在用户请求语境里都按用户处理；只有明确写 character/角色才归角色。
+    const characterOwner = raw === "character" || raw === "char" || raw === "角色" || raw === "角色自己";
+    return characterOwner
+        ? { ownerType: "character", ownerId: characterId, label: "角色" }
+        : { ownerType: "user", ownerId: "self", label: "用户" };
+}
+
+function resolveCalendarReminderCharacterId(
+    args: Record<string, unknown>,
+    ownerType: CalendarOwnerType,
+    currentCharacterId: string,
+    existing: string | undefined,
+    defaultToCurrentCharacter: boolean,
+): string | undefined {
+    if (ownerType !== "user") return undefined;
+    const raw = args.remindAtStart ?? args.remind_at_start ?? args.reminderEnabled ?? args.reminder_enabled;
+    if (raw === false || raw === 0 || (typeof raw === "string" && /^(false|0|no|off|不提醒)$/i.test(raw.trim()))) return undefined;
+    if (raw === true || raw === 1 || (typeof raw === "string" && /^(true|1|yes|on|提醒)$/i.test(raw.trim()))) return currentCharacterId;
+    return defaultToCurrentCharacter ? currentCharacterId : existing;
 }
 
 type CalendarDraftParseResult =
@@ -2142,6 +2192,7 @@ function formatCalendarItemForTool(item: CalendarScheduleItem): Record<string, u
         title: item.title,
         emoji: item.emoji || "",
         source: item.source,
+        reminderCharacterId: item.reminderCharacterId || "",
     };
 }
 
